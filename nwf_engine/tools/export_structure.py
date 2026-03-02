@@ -37,6 +37,27 @@ def generate_tree(root_path, exclude_dirs, max_depth=None):
     return "\n".join(lines)
 
 
+def export(output="project_structure.txt",
+           exclude=None,
+           depth=None):
+
+    if exclude is None:
+        exclude = DEFAULT_EXCLUDES
+
+    root_path = os.getcwd()
+
+    structure = generate_tree(
+        root_path,
+        set(exclude),
+        depth
+    )
+
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(structure)
+
+    print(f"Structure exported to {output}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Export NWF project directory structure"
@@ -64,17 +85,11 @@ def main():
 
     args = parser.parse_args()
 
-    root_path = os.getcwd()
-    structure = generate_tree(
-        root_path,
-        set(args.exclude),
-        args.depth
+    export(
+        output=args.output,
+        exclude=args.exclude,
+        depth=args.depth
     )
-
-    with open(args.output, "w", encoding="utf-8") as f:
-        f.write(structure)
-
-    print(f"Structure exported to {args.output}")
 
 
 if __name__ == "__main__":

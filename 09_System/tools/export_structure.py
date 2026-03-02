@@ -1,77 +1,80 @@
+#!/usr/bin/env python3
+"""
+NWF Structure Export Tool
+Framework構造をテキスト出力するCLIツール
+"""
+
 import os
-from pathlib import Path
-
-# ==========================
-# 設定項目
-# ==========================
-
-# 対象ディレクトリ（"." で現在ディレクトリ）
-ROOT_DIR = "."
-
-# 除外するフォルダ(追加したPython仮想環境フォルダの対応)
-EXCLUDE_DIRS = {
-    ".venv",
-    ".git",
-    "__pycache__",
-    "node_modules"
-}
-
-# 除外する拡張子
-EXCLUDE_EXTENSIONS = {
-    ".pyc",
-    ".log",
-    ".tmp"
-}
-
-# 出力ファイル名
-OUTPUT_FILE = "project_structure.txt"
+import argparse
 
 
-# ==========================
-# メイン処理
-# ==========================
-
-def should_exclude(path: Path):
-    if path.name in EXCLUDE_DIRS:
-        return True
-    if path.suffix in EXCLUDE_EXTENSIONS:
-        return True
-    return False
+DEFAULT_EXCLUDES = {".git", ".venv", "__pycache__"}
 
 
-def build_tree(directory: Path, prefix=""):
+def generate_tree(root_path, exclude_dirs, max_depth=None):
     lines = []
 
-    entries = [
-        e for e in sorted(
-            directory.iterdir(),
-            key=lambda x: (x.is_file(), x.name.lower())
-        )
-        if not should_exclude(e)
-    ]
+    for root, dirs, files in os.walk(root_path):
+        # 現在の階層レベル算出
+        level = root.replace(root_path, "").count(os.sep)
 
-    for index, entry in enumerate(entries):
-        connector = "└── " if index == len(entries) - 1 else "├── "
-        lines.append(prefix + connector + entry.name)
+        # depth制限チェック
+        if max_depth is not None and level > max_depth:
+            continue
 
-        if entry.is_dir():
-            extension = "    " if index == len(entries) - 1 else "│   "
-            lines.extend(build_tree(entry, prefix + extension))
+        # 除外ディレクトリ処理
+        dirs[:] = [d for d in dirs if d not in exclude_dirs]
 
-    return lines
+        indent = "    " * level
+        lines.append(f"{indent}{os.path.basename(root)}/")
+
+        # depth制限内のみファイル表示
+        if max_depth is None or level < max_depth:
+            sub_indent = "    " * (level + 1)
+            for f in files:
+                lines.append(f"{sub_indent}{f}")
+
+    return "\n".join(lines)
 
 
 def main():
-    root_path = Path(ROOT_DIR).resolve()
-    print(f"Scanning: {root_path}")
+    parser = argparse.ArgumentParser(
+        description="Export NWF project directory structure"
+    )
 
-    tree_lines = [root_path.name]
-    tree_lines.extend(build_tree(root_path))
+    parser.add_argument(
+        "--output",
+        default="project_structure.txt",
+        help="Output file name"
+    )
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        f.write("\n".join(tree_lines))
+    parser.add_argument(
+        "--exclude",
+        nargs="*",
+        default=list(DEFAULT_EXCLUDES),
+        help="Directories to exclude"
+    )
 
-    print(f"\nStructure exported to: {OUTPUT_FILE}")
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=None,
+        help="Maximum depth of directory tree"
+    )
+
+    args = parser.parse_args()
+
+    root_path = os.getcwd()
+    structure = generate_tree(
+        root_path,
+        set(args.exclude),
+        args.depth
+    )
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(structure)
+
+    print(f"Structure exported to {args.output}")
 
 
 if __name__ == "__main__":

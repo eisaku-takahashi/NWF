@@ -1,48 +1,50 @@
-Novel_Writing_Framework
-├── .github
-│   └── workflows
-│       └── backup.yml
-├── 00_Documentation
-│   ├── CHANGELOG.md
-│   ├── README.md
-│   └── SYSTEM_OVERVIEW.md
-├── 01_CanonCore
-│   ├── canon_core.json
-│   ├── hard_constraints.json
-│   └── theme_policy.json
-├── 02_WorldMatrix
-│   ├── factions.json
-│   ├── geography.json
-│   ├── history.json
-│   └── power_balance.json
-├── 03_PlotArchitecture
-│   ├── Arc_01
-│   │   ├── arc_design.json
-│   │   └── scene_list.json
-│   ├── Arc_02
-│   └── GrandDesign.json
-├── 04_ThreadEngine
-│   ├── thread_archive
-│   └── threads_master.json
-├── 05_EmotionalCurve
-│   ├── arc_curves
-│   └── global_curve.json
-├── 06_StoryState
-│   ├── archive
-│   └── current_state.json
-├── 07_Manuscript
-│   ├── Arc_01
-│   │   ├── Chapter_01.md
-│   │   └── Chapter_02.md
-│   └── Arc_02
-├── 08_Output
-│   ├── compiled_versions
-│   └── export
-├── 09_System
-│   ├── emotion_validator.py
-│   ├── state_updater.py
-│   └── thread_checker.py
-├── .gitignore
-├── export_structure.py
-├── project_structure.txt
-└── requirements.txt
+Novel_Writing_Framework/
+    .gitignore
+    project_structure.txt
+    requirements.txt
+    .github/
+        workflows/
+            backup.yml
+    00_Documentation/
+        CHANGELOG.md
+        DEVELOPMENT_GUIDELINES.md
+        README.md
+        SYSTEM_OVERVIEW.md
+    01_CanonCore/
+        canon_core.json
+        hard_constraints.json
+        theme_policy.json
+    02_WorldMatrix/
+        factions.json
+        geography.json
+        history.json
+        power_balance.json
+    03_PlotArchitecture/
+        GrandDesign.json
+        Arc_01/
+            arc_design.json
+            scene_list.json
+        Arc_02/
+    04_ThreadEngine/
+        threads_master.json
+        thread_archive/
+    05_EmotionalCurve/
+        global_curve.json
+        arc_curves/
+    06_StoryState/
+        current_state.json
+        archive/
+    07_Manuscript/
+        Arc_01/
+            Chapter_01.md
+            Chapter_02.md
+        Arc_02/
+    08_Output/
+        compiled_versions/
+        export/
+    09_System/
+        emotion_validator.py
+        state_updater.py
+        thread_checker.py
+        tools/
+            export_structure.py

@@ -1,4 +1,21 @@
+# Python / Virtual Environment
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.env/
+
+# Egg / Build
+nwf.egg-info/
+dist/
+build/
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Logs / Temporary
 *.log
+*.tmp
+*.bak

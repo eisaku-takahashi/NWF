@@ -1,0 +1,7 @@
+{
+    "project_name": "virtual_aviation_history_fluctuation",
+    "version": "0.1.0",
+    "required_engines": [
+        "emotion"
+    ]
+}

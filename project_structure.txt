@@ -1,50 +1,96 @@
 Novel_Writing_Framework/
     .gitignore
     project_structure.txt
+    pyproject.toml
     requirements.txt
     .github/
         workflows/
             backup.yml
-    00_Documentation/
+    docs/
         CHANGELOG.md
         DEVELOPMENT_GUIDELINES.md
+        NWF_ARCHITECTURE_v0.2.md
         README.md
         SYSTEM_OVERVIEW.md
-    01_CanonCore/
-        canon_core.json
-        hard_constraints.json
-        theme_policy.json
-    02_WorldMatrix/
-        factions.json
-        geography.json
-        history.json
-        power_balance.json
-    03_PlotArchitecture/
-        GrandDesign.json
-        Arc_01/
-            arc_design.json
-            scene_list.json
-        Arc_02/
-    04_ThreadEngine/
-        threads_master.json
-        thread_archive/
-    05_EmotionalCurve/
-        global_curve.json
-        arc_curves/
-    06_StoryState/
-        current_state.json
-        archive/
-    07_Manuscript/
-        Arc_01/
-            Chapter_01.md
-            Chapter_02.md
-        Arc_02/
-    08_Output/
-        compiled_versions/
-        export/
-    09_System/
-        emotion_validator.py
-        state_updater.py
-        thread_checker.py
+        specification/
+            ThreadEngine_v0.1.md
+    nwf/
+        thread_engine.py
+    nwf.egg-info/
+        dependency_links.txt
+        entry_points.txt
+        PKG-INFO
+        SOURCES.txt
+        top_level.txt
+    nwf_engine/
+        __init__.py
+        cli/
+            main.py
+            new.py
+            __init__.py
+            __main__.py
+        core/
+            __init__.py
+        state/
+            state_updater.py
+            __init__.py
+        templates/
+            minimal_project/
+                project_config.json
+                Manuscript/
+                Output/
+                PlotArchitecture/
+                StoryState/
         tools/
             export_structure.py
+            __init__.py
+        validators/
+            emotion_validator.py
+            project_validator.py
+            thread_checker.py
+            validate_runner.py
+            __init__.py
+    projects/
+        test_project/
+            project_config.json
+            EmotionalCurve/
+                global_curve.json
+            ThreadEngine/
+                threads_master.json
+        virtual_aviation_history_fluctuation/
+            project_config.json
+            CanonCore/
+                canon_core.json
+                hard_constraints.json
+                theme_policy.json
+            EmotionalCurve/
+                global_curve.json
+                arc_curves/
+            Manuscript/
+                Arc_01/
+                    Chapter_01.md
+                    Chapter_02.md
+                Arc_02/
+            Output/
+                .gitkeep
+                compiled_versions/
+                    .gitkeep
+                export/
+                    .gitkeep
+            PlotArchitecture/
+                GrandDesign.json
+                Arc_01/
+                    arc_design.json
+                    scene_list.json
+                Arc_02/
+            StoryState/
+                current_state.json
+                archive/
+            ThreadEngine/
+                threads_master.json
+                thread_archive/
+            WorldMatrix/
+                factions.json
+                geography.json
+                history.json
+                power_balance.json

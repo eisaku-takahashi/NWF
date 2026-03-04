@@ -1,0 +1,109 @@
+{
+    "project": "test_project『追憶図書館』",
+    "version": "0.1",
+    "engine_version": "ThreadEngine v0.1",
+    "mode": "strict",
+    "threads": [
+        {
+            "id": "S1",
+            "title": "主人公の失われた幼少期",
+            "type": "mystery",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act1-Scene2",
+            "expected_resolution": "Act3",
+            "depends_on": []
+        },
+        {
+            "id": "S2",
+            "title": "記憶保存の代償",
+            "type": "rule",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act1-Scene1",
+            "expected_resolution": "thematic",
+            "depends_on": []
+        },
+        {
+            "id": "S3",
+            "title": "少女の消された記憶",
+            "type": "plot",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act1-Scene3",
+            "expected_resolution": "Act3",
+            "depends_on": [
+                "S9"
+            ]
+        },
+        {
+            "id": "S4",
+            "title": "禁書区画の正体",
+            "type": "mystery",
+            "status": "open",
+            "priority": "medium",
+            "introduced_at": "Act1-Scene4",
+            "expected_resolution": "Act2",
+            "depends_on": []
+        },
+        {
+            "id": "S5",
+            "title": "主人公の本の存在",
+            "type": "mystery",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act1-Scene2",
+            "expected_resolution": "Act3",
+            "depends_on": [
+                "S1"
+            ]
+        },
+        {
+            "id": "S6",
+            "title": "図書館の倫理的立場",
+            "type": "theme",
+            "status": "open",
+            "priority": "medium",
+            "introduced_at": "Act1-Scene4",
+            "expected_resolution": "Act3",
+            "depends_on": [
+                "S2"
+            ]
+        },
+        {
+            "id": "S7",
+            "title": "保存しないという選択",
+            "type": "thematic",
+            "status": "thematic",
+            "priority": "high",
+            "introduced_at": "Act1",
+            "expected_resolution": "thematic",
+            "depends_on": [
+                "S1",
+                "S3"
+            ]
+        },
+        {
+            "id": "S8",
+            "title": "記憶と自己同一性",
+            "type": "theme",
+            "status": "thematic",
+            "priority": "core",
+            "introduced_at": "Act1-Scene2",
+            "expected_resolution": "thematic",
+            "depends_on": [
+                "S1"
+            ]
+        },
+        {
+            "id": "S9",
+            "title": "記憶消去の主体",
+            "type": "mystery",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act1-Scene3",
+            "expected_resolution": "Act2",
+            "depends_on": []
+        }
+    ]
+}

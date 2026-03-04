@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nwf"
+version = "0.2.0"
+description = "Novel Writing Framework Engine"
+authors = [
+    {name = "NWF Developer"}
+]
+readme = "docs/README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+nwf = "nwf_engine.cli.main:main"
+
+[tool.setuptools]
+packages = ["nwf_engine"]

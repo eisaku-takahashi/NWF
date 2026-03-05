@@ -1,240 +1,94 @@
-#!/usr/bin/env python3
-# ==========================================================
-# ThreadEngine v0.2
-# NWF仕様準拠 実装版（JSON出力対応）
-# ----------------------------------------------------------
-# 追加機能：
-#   - --json オプション
-#   - 構造化出力対応
-# ==========================================================
-
 import json
-import sys
-import argparse
-from typing import Dict, List
+from pathlib import Path
 
 
-# ==========================================================
-# 定数定義
-# ==========================================================
+class ThreadEngine:
 
-ALLOWED_STATUS = {
-    "open",
-    "resolved",
-    "partially_resolved",
-    "abandoned",
-    "thematic"
-}
+    def __init__(self, json_path: str):
+        self.json_path = Path(json_path)
+        self.data = None
+        self.threads = []
 
-UNRESOLVED_STATUS = {
-    "open",
-    "partially_resolved",
-    "abandoned"
-}
+    # -----------------------------
+    # JSON Load
+    # -----------------------------
 
+    def load(self):
 
-# ==========================================================
-# 例外定義
-# ==========================================================
+        if not self.json_path.exists():
+            raise FileNotFoundError(f"JSON file not found: {self.json_path}")
 
-class ThreadValidationError(Exception):
-    pass
+        with open(self.json_path, "r", encoding="utf-8") as f:
+            self.data = json.load(f)
 
+        self.threads = self.data.get("threads", [])
 
-class IDDuplicateError(ThreadValidationError):
-    pass
+    # -----------------------------
+    # Thread取得
+    # -----------------------------
 
-
-# ==========================================================
-# ThreadValidator
-# ==========================================================
-
-class ThreadValidator:
-
-    def __init__(self, data: Dict, strict: bool = False):
-        self.data = data
-        self.strict = strict
-        self.thread_ids = set()
-        self.duplicate_ids = set()
-        self.threads: List[Dict] = []
-
-    # ------------------------------------------------------
-
-    def validate(self):
-
-        self._validate_root_structure()
-        self.threads = self.data["threads"]
-
-        for index, thread in enumerate(self.threads):
-            self._validate_thread_basic(thread, index)
-
-        self._check_duplicate_ids()
-
-        unresolved_count = 0
+    def get_thread(self, thread_id: str):
 
         for thread in self.threads:
-            status = thread["status"]
+            if thread["id"] == thread_id:
+                return thread
 
-            if status in UNRESOLVED_STATUS:
-                unresolved_count += 1
+        return None
 
-            if self.strict:
-                if status in UNRESOLVED_STATUS:
-                    raise ThreadValidationError(
-                        f"strictモード: 未回収スレッド検出 ({thread['id']})"
-                    )
+    # -----------------------------
+    # open threads
+    # -----------------------------
 
-                if status == "abandoned":
-                    raise ThreadValidationError(
-                        f"strictモード: abandoned スレッド検出 ({thread['id']})"
-                    )
+    def get_open_threads(self):
 
-        total_threads = len(self.threads)
-        unresolved_ratio = (
-            unresolved_count / total_threads
-            if total_threads > 0 else 0
-        )
+        return [
+            t for t in self.threads
+            if t.get("status") == "open"
+        ]
 
-        return {
-            "total": total_threads,
-            "unresolved": unresolved_count,
-            "ratio": unresolved_ratio
-        }
+    # -----------------------------
+    # resolved threads
+    # -----------------------------
 
-    # ------------------------------------------------------
+    def get_resolved_threads(self):
 
-    def _validate_root_structure(self):
+        return [
+            t for t in self.threads
+            if t.get("status") == "resolved"
+        ]
 
-        if not isinstance(self.data, dict):
-            raise ThreadValidationError("ルートは辞書型である必要があります。")
+    # -----------------------------
+    # emotion peak
+    # -----------------------------
 
-        required_fields = {"project", "version", "threads"}
+    def get_emotion_peaks(self):
 
-        for field in required_fields:
-            if field not in self.data:
-                raise ThreadValidationError(
-                    f"ルートに必須フィールド '{field}' がありません。"
-                )
+        peaks = []
 
-        if not isinstance(self.data["threads"], list):
-            raise ThreadValidationError("'threads' は配列である必要があります。")
+        for t in self.threads:
 
-    # ------------------------------------------------------
+            if "emotion_peak" in t:
+                peaks.append({
+                    "thread_id": t["id"],
+                    "scene": t["emotion_peak"]
+                })
 
-    def _validate_thread_basic(self, thread: Dict, index: int):
+        return peaks
 
-        if not isinstance(thread, dict):
-            raise ThreadValidationError(
-                f"threads[{index}] は辞書型である必要があります。"
-            )
+    # -----------------------------
+    # emotion valley
+    # -----------------------------
 
-        if "id" not in thread:
-            raise ThreadValidationError(
-                f"threads[{index}] に 'id' が必要です。"
-            )
+    def get_emotion_valleys(self):
 
-        if "status" not in thread:
-            raise ThreadValidationError(
-                f"threads[{index}] に 'status' が必要です。"
-            )
+        valleys = []
 
-        thread_id = thread["id"]
-        status = thread["status"]
+        for t in self.threads:
 
-        if thread_id in self.thread_ids:
-            self.duplicate_ids.add(thread_id)
-        else:
-            self.thread_ids.add(thread_id)
+            if "emotion_valley" in t:
+                valleys.append({
+                    "thread_id": t["id"],
+                    "scene": t["emotion_valley"]
+                })
 
-        if status not in ALLOWED_STATUS:
-            raise ThreadValidationError(
-                f"threads[{index}] の status '{status}' は不正です。"
-            )
-
-    # ------------------------------------------------------
-
-    def _check_duplicate_ids(self):
-
-        if self.duplicate_ids:
-            ids = ", ".join(sorted(self.duplicate_ids))
-            raise IDDuplicateError(
-                f"ID重複が検出されました: {ids}"
-            )
-
-
-# ==========================================================
-# JSON読み込み
-# ==========================================================
-
-def load_json(path: str) -> Dict:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        raise ThreadValidationError(f"JSON読み込みエラー: {e}")
-
-
-# ==========================================================
-# CLI
-# ==========================================================
-
-def main():
-
-    parser = argparse.ArgumentParser(
-        description="NWF ThreadEngine v0.2 Validator"
-    )
-
-    parser.add_argument("path", help="threads_master.json のパス")
-    parser.add_argument("--strict", action="store_true")
-    parser.add_argument("--json", action="store_true")
-
-    args = parser.parse_args()
-
-    try:
-        data = load_json(args.path)
-        validator = ThreadValidator(data, strict=args.strict)
-        result = validator.validate()
-
-        if args.json:
-            output = {
-                "status": "ok",
-                "total": result["total"],
-                "unresolved": result["unresolved"],
-                "ratio": result["ratio"],
-                "strict": args.strict
-            }
-            print(json.dumps(output, ensure_ascii=False))
-        else:
-            total = result["total"]
-            unresolved = result["unresolved"]
-            ratio = result["ratio"]
-
-            print("Thread検証結果")
-            print(f"Total: {total}")
-            print(f"Unresolved: {unresolved} / {total} ({ratio:.0%})")
-
-            if unresolved > 0 and not args.strict:
-                print("WARNING: 未回収スレッドがあります。")
-            else:
-                print("OK")
-
-        sys.exit(0)
-
-    except ThreadValidationError as e:
-
-        if args.json:
-            error_output = {
-                "status": "error",
-                "error_type": e.__class__.__name__,
-                "message": str(e)
-            }
-            print(json.dumps(error_output, ensure_ascii=False))
-        else:
-            print("ERROR:")
-            print(str(e))
-
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+        return valleys

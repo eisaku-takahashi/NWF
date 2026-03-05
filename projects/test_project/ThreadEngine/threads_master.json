@@ -1,17 +1,17 @@
 {
-    "project": "test_project『追憶図書館』",
-    "version": "0.1",
-    "engine_version": "ThreadEngine v0.1",
-    "mode": "strict",
+    "version": "0.4",
+    "project": "追憶図書館",
     "threads": [
         {
             "id": "S1",
             "title": "主人公の失われた幼少期",
             "type": "mystery",
             "status": "open",
-            "priority": "high",
-            "introduced_at": "Act1-Scene2",
-            "expected_resolution": "Act3",
+            "priority": "core",
+            "introduced_at": "Act1-Scene3",
+            "setup_scene": "Act1-Scene3",
+            "payoff_scene": "Act3-Scene18",
+            "foreshadow_level": "major",
             "depends_on": []
         },
         {
@@ -21,7 +21,9 @@
             "status": "open",
             "priority": "high",
             "introduced_at": "Act1-Scene1",
-            "expected_resolution": "thematic",
+            "setup_scene": "Act1-Scene1",
+            "payoff_scene": "Act3-Scene20",
+            "foreshadow_level": "major",
             "depends_on": []
         },
         {
@@ -30,8 +32,10 @@
             "type": "plot",
             "status": "open",
             "priority": "high",
-            "introduced_at": "Act1-Scene3",
-            "expected_resolution": "Act3",
+            "introduced_at": "Act1-Scene4",
+            "setup_scene": "Act1-Scene4",
+            "payoff_scene": "Act3-Scene19",
+            "foreshadow_level": "major",
             "depends_on": [
                 "S9"
             ]
@@ -41,9 +45,11 @@
             "title": "禁書区画の正体",
             "type": "mystery",
             "status": "open",
-            "priority": "medium",
-            "introduced_at": "Act1-Scene4",
-            "expected_resolution": "Act2",
+            "priority": "high",
+            "introduced_at": "Act1-Scene5",
+            "setup_scene": "Act1-Scene5",
+            "payoff_scene": "Act2-Scene12",
+            "foreshadow_level": "major",
             "depends_on": []
         },
         {
@@ -51,9 +57,11 @@
             "title": "主人公の本の存在",
             "type": "mystery",
             "status": "open",
-            "priority": "high",
-            "introduced_at": "Act1-Scene2",
-            "expected_resolution": "Act3",
+            "priority": "core",
+            "introduced_at": "Act1-Scene3",
+            "setup_scene": "Act1-Scene3",
+            "payoff_scene": "Act3-Scene18",
+            "foreshadow_level": "major",
             "depends_on": [
                 "S1"
             ]
@@ -64,8 +72,10 @@
             "type": "theme",
             "status": "open",
             "priority": "medium",
-            "introduced_at": "Act1-Scene4",
-            "expected_resolution": "Act3",
+            "introduced_at": "Act1-Scene6",
+            "setup_scene": "Act1-Scene6",
+            "payoff_scene": "Act3-Scene20",
+            "foreshadow_level": "major",
             "depends_on": [
                 "S2"
             ]
@@ -75,9 +85,11 @@
             "title": "保存しないという選択",
             "type": "thematic",
             "status": "thematic",
-            "priority": "high",
-            "introduced_at": "Act1",
-            "expected_resolution": "thematic",
+            "priority": "core",
+            "introduced_at": "Act1-Scene2",
+            "setup_scene": "Act1-Scene2",
+            "payoff_scene": "Act3-Scene20",
+            "foreshadow_level": "major",
             "depends_on": [
                 "S1",
                 "S3"
@@ -89,8 +101,10 @@
             "type": "theme",
             "status": "thematic",
             "priority": "core",
-            "introduced_at": "Act1-Scene2",
-            "expected_resolution": "thematic",
+            "introduced_at": "Act1-Scene3",
+            "setup_scene": "Act1-Scene3",
+            "payoff_scene": "Act3-Scene20",
+            "foreshadow_level": "major",
             "depends_on": [
                 "S1"
             ]
@@ -101,9 +115,460 @@
             "type": "mystery",
             "status": "open",
             "priority": "high",
-            "introduced_at": "Act1-Scene3",
-            "expected_resolution": "Act2",
+            "introduced_at": "Act1-Scene4",
+            "setup_scene": "Act1-Scene4",
+            "payoff_scene": "Act2-Scene11",
+            "foreshadow_level": "major",
             "depends_on": []
+        },
+        {
+            "id": "S10",
+            "title": "禁書区画の管理者",
+            "type": "mystery",
+            "status": "open",
+            "priority": "medium",
+            "introduced_at": "Act1-Scene7",
+            "setup_scene": "Act1-Scene7",
+            "payoff_scene": "Act2-Scene14",
+            "foreshadow_level": "minor",
+            "depends_on": [
+                "S4"
+            ]
+        },
+        {
+            "id": "S11",
+            "title": "記憶改竄の可能性",
+            "type": "plot",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act2-Scene9",
+            "setup_scene": "Act2-Scene9",
+            "payoff_scene": "Act3-Scene19",
+            "foreshadow_level": "major",
+            "depends_on": [
+                "S9"
+            ]
+        },
+        {
+            "id": "S12",
+            "title": "少女の未来の決断",
+            "type": "plot",
+            "status": "open",
+            "priority": "medium",
+            "introduced_at": "Act2-Scene10",
+            "setup_scene": "Act2-Scene10",
+            "payoff_scene": "Act3-Scene19",
+            "foreshadow_level": "minor",
+            "depends_on": [
+                "S3"
+            ]
+        },
+        {
+            "id": "S13",
+            "title": "主人公の記憶消去申請",
+            "type": "mystery",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act2-Scene13",
+            "setup_scene": "Act2-Scene13",
+            "payoff_scene": "Act3-Scene18",
+            "foreshadow_level": "major",
+            "depends_on": [
+                "S1"
+            ]
+        },
+        {
+            "id": "S14",
+            "title": "図書館の秘密規約",
+            "type": "rule",
+            "status": "open",
+            "priority": "medium",
+            "introduced_at": "Act1-Scene6",
+            "setup_scene": "Act1-Scene6",
+            "payoff_scene": "Act2-Scene15",
+            "foreshadow_level": "minor",
+            "depends_on": [
+                "S4"
+            ]
+        },
+        {
+            "id": "S15",
+            "title": "記憶の市場",
+            "type": "world",
+            "status": "open",
+            "priority": "low",
+            "introduced_at": "Act2-Scene8",
+            "setup_scene": "Act2-Scene8",
+            "payoff_scene": "Act3-Scene17",
+            "foreshadow_level": "minor",
+            "depends_on": []
+        },
+        {
+            "id": "S16",
+            "title": "主人公の過去の罪",
+            "type": "mystery",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act2-Scene13",
+            "setup_scene": "Act2-Scene13",
+            "payoff_scene": "Act3-Scene18",
+            "foreshadow_level": "major",
+            "depends_on": [
+                "S13"
+            ]
+        },
+        {
+            "id": "S17",
+            "title": "少女の父の記憶",
+            "type": "plot",
+            "status": "open",
+            "priority": "medium",
+            "introduced_at": "Act1-Scene8",
+            "setup_scene": "Act1-Scene8",
+            "payoff_scene": "Act3-Scene19",
+            "foreshadow_level": "minor",
+            "depends_on": [
+                "S3"
+            ]
+        },
+        {
+            "id": "S18",
+            "title": "図書館の本当の目的",
+            "type": "theme",
+            "status": "open",
+            "priority": "high",
+            "introduced_at": "Act2-Scene14",
+            "setup_scene": "Act2-Scene14",
+            "payoff_scene": "Act3-Scene20",
+            "foreshadow_level": "major",
+            "depends_on": [
+                "S6"
+            ]
+        }
+    ],
+    "characters": [
+        {
+            "id": "C1",
+            "name": "主人公",
+            "role": "protagonist",
+            "threads_related": [
+                "S1",
+                "S5",
+                "S7",
+                "S8",
+                "S13",
+                "S16"
+            ]
+        },
+        {
+            "id": "C2",
+            "name": "少女",
+            "role": "client",
+            "threads_related": [
+                "S3",
+                "S12",
+                "S17"
+            ]
+        },
+        {
+            "id": "C3",
+            "name": "主任司書",
+            "role": "mentor",
+            "threads_related": [
+                "S6",
+                "S14",
+                "S18"
+            ]
+        },
+        {
+            "id": "C4",
+            "name": "禁書管理者",
+            "role": "gatekeeper",
+            "threads_related": [
+                "S4",
+                "S10"
+            ]
+        },
+        {
+            "id": "C5",
+            "name": "記憶監査官",
+            "role": "authority",
+            "threads_related": [
+                "S11",
+                "S14"
+            ]
+        },
+        {
+            "id": "C6",
+            "name": "記憶収集者",
+            "role": "antagonist",
+            "threads_related": [
+                "S15",
+                "S11"
+            ]
+        }
+    ],
+    "scenes": [
+        {
+            "id": "Act1-Scene1",
+            "location": "追憶図書館",
+            "characters": [
+                "C1",
+                "C3"
+            ],
+            "threads_introduced": [
+                "S2"
+            ],
+            "emotion": "mystery"
+        },
+        {
+            "id": "Act1-Scene2",
+            "location": "閲覧室",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [
+                "S7"
+            ],
+            "emotion": "unease"
+        },
+        {
+            "id": "Act1-Scene3",
+            "location": "書架",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [
+                "S1",
+                "S5",
+                "S8"
+            ],
+            "emotion": "mystery"
+        },
+        {
+            "id": "Act1-Scene4",
+            "location": "受付",
+            "characters": [
+                "C1",
+                "C2"
+            ],
+            "threads_introduced": [
+                "S3",
+                "S9"
+            ],
+            "emotion": "mystery"
+        },
+        {
+            "id": "Act1-Scene5",
+            "location": "禁書区画入口",
+            "characters": [
+                "C1",
+                "C4"
+            ],
+            "threads_introduced": [
+                "S4"
+            ],
+            "emotion": "tension"
+        },
+        {
+            "id": "Act1-Scene6",
+            "location": "司書室",
+            "characters": [
+                "C1",
+                "C3"
+            ],
+            "threads_introduced": [
+                "S6",
+                "S14"
+            ],
+            "emotion": "unease"
+        },
+        {
+            "id": "Act1-Scene7",
+            "location": "地下廊下",
+            "characters": [
+                "C1",
+                "C4"
+            ],
+            "threads_introduced": [
+                "S10"
+            ],
+            "emotion": "suspense"
+        },
+        {
+            "id": "Act1-Scene8",
+            "location": "記憶閲覧室",
+            "characters": [
+                "C1",
+                "C2"
+            ],
+            "threads_introduced": [
+                "S17"
+            ],
+            "emotion": "sadness"
+        },
+        {
+            "id": "Act2-Scene9",
+            "location": "禁書区画",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [
+                "S11"
+            ],
+            "emotion": "investigation"
+        },
+        {
+            "id": "Act2-Scene10",
+            "location": "閲覧室",
+            "characters": [
+                "C1",
+                "C2"
+            ],
+            "threads_introduced": [
+                "S12"
+            ],
+            "emotion": "reflection"
+        },
+        {
+            "id": "Act2-Scene11",
+            "location": "監査局",
+            "characters": [
+                "C5"
+            ],
+            "threads_introduced": [],
+            "emotion": "revelation"
+        },
+        {
+            "id": "Act2-Scene12",
+            "location": "禁書区画",
+            "characters": [
+                "C1",
+                "C4"
+            ],
+            "threads_introduced": [],
+            "emotion": "discovery"
+        },
+        {
+            "id": "Act2-Scene13",
+            "location": "古書室",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [
+                "S13",
+                "S16"
+            ],
+            "emotion": "shock"
+        },
+        {
+            "id": "Act2-Scene14",
+            "location": "司書室",
+            "characters": [
+                "C1",
+                "C3"
+            ],
+            "threads_introduced": [
+                "S18"
+            ],
+            "emotion": "revelation"
+        },
+        {
+            "id": "Act2-Scene15",
+            "location": "監査局",
+            "characters": [
+                "C5"
+            ],
+            "threads_introduced": [],
+            "emotion": "tension"
+        },
+        {
+            "id": "Act3-Scene16",
+            "location": "図書館",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [],
+            "emotion": "determination"
+        },
+        {
+            "id": "Act3-Scene17",
+            "location": "記憶市場",
+            "characters": [
+                "C6"
+            ],
+            "threads_introduced": [],
+            "emotion": "dark"
+        },
+        {
+            "id": "Act3-Scene18",
+            "location": "禁書区画",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [],
+            "emotion": "climax"
+        },
+        {
+            "id": "Act3-Scene19",
+            "location": "閲覧室",
+            "characters": [
+                "C1",
+                "C2"
+            ],
+            "threads_introduced": [],
+            "emotion": "resolution"
+        },
+        {
+            "id": "Act3-Scene20",
+            "location": "図書館出口",
+            "characters": [
+                "C1"
+            ],
+            "threads_introduced": [],
+            "emotion": "epilogue"
+        }
+    ],
+    "world_rules": [
+        {
+            "id": "R1",
+            "rule": "記憶は本として保存される",
+            "introduced_at": "Act1-Scene1",
+            "threads_related": [
+                "S2"
+            ]
+        },
+        {
+            "id": "R2",
+            "rule": "保存された記憶は現実側で希薄化する",
+            "introduced_at": "Act1-Scene1",
+            "threads_related": [
+                "S2"
+            ]
+        },
+        {
+            "id": "R3",
+            "rule": "記憶消去は原則本人申請制",
+            "introduced_at": "Act1-Scene4",
+            "threads_related": [
+                "S9"
+            ]
+        },
+        {
+            "id": "R4",
+            "rule": "禁書区画は特殊許可が必要",
+            "introduced_at": "Act1-Scene5",
+            "threads_related": [
+                "S4"
+            ]
+        },
+        {
+            "id": "R5",
+            "rule": "記憶の売買は違法だが存在する",
+            "introduced_at": "Act2-Scene8",
+            "threads_related": [
+                "S15"
+            ]
         }
     ]
 }

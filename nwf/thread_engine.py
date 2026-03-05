@@ -1,43 +1,31 @@
 import json
-from pathlib import Path
+
+
+class ThreadValidationError(Exception):
+    pass
 
 
 class ThreadEngine:
 
-    def __init__(self, json_path: str):
-        self.json_path = Path(json_path)
-        self.data = None
-        self.threads = []
+    def __init__(self, json_path):
 
-    # -----------------------------
-    # JSON Load
-    # -----------------------------
-
-    def load(self):
-
-        if not self.json_path.exists():
-            raise FileNotFoundError(f"JSON file not found: {self.json_path}")
-
-        with open(self.json_path, "r", encoding="utf-8") as f:
+        with open(json_path, "r", encoding="utf-8") as f:
             self.data = json.load(f)
 
         self.threads = self.data.get("threads", [])
 
-    # -----------------------------
-    # Thread取得
-    # -----------------------------
-
-    def get_thread(self, thread_id: str):
-
-        for thread in self.threads:
-            if thread["id"] == thread_id:
-                return thread
-
-        return None
+        self.thread_map = {
+            thread["id"]: thread
+            for thread in self.threads
+        }
 
     # -----------------------------
-    # open threads
+    # v0.3 API
     # -----------------------------
+
+    def get_thread(self, thread_id):
+
+        return self.thread_map.get(thread_id)
 
     def get_open_threads(self):
 
@@ -46,10 +34,6 @@ class ThreadEngine:
             if t.get("status") == "open"
         ]
 
-    # -----------------------------
-    # resolved threads
-    # -----------------------------
-
     def get_resolved_threads(self):
 
         return [
@@ -57,38 +41,79 @@ class ThreadEngine:
             if t.get("status") == "resolved"
         ]
 
-    # -----------------------------
-    # emotion peak
-    # -----------------------------
-
     def get_emotion_peaks(self):
 
-        peaks = []
-
-        for t in self.threads:
-
-            if "emotion_peak" in t:
-                peaks.append({
-                    "thread_id": t["id"],
-                    "scene": t["emotion_peak"]
-                })
-
-        return peaks
-
-    # -----------------------------
-    # emotion valley
-    # -----------------------------
+        return [
+            t for t in self.threads
+            if t.get("emotion") == "peak"
+        ]
 
     def get_emotion_valleys(self):
 
-        valleys = []
+        return [
+            t for t in self.threads
+            if t.get("emotion") == "valley"
+        ]
 
-        for t in self.threads:
+    # -----------------------------
+    # v0.4 API
+    # -----------------------------
 
-            if "emotion_valley" in t:
-                valleys.append({
-                    "thread_id": t["id"],
-                    "scene": t["emotion_valley"]
-                })
+    def validate_dependencies(self):
 
-        return valleys
+        errors = []
+
+        for thread in self.threads:
+
+            deps = thread.get("depends_on", [])
+
+            for dep in deps:
+
+                if dep not in self.thread_map:
+
+                    errors.append(
+                        f"{thread['id']} depends_on unknown thread {dep}"
+                    )
+
+        if errors:
+            raise ThreadValidationError(
+                "\n".join(errors)
+            )
+
+        return True
+
+    def build_thread_graph(self):
+
+        graph = {}
+
+        for thread in self.threads:
+
+            graph[thread["id"]] = thread.get("depends_on", [])
+
+        return graph
+
+    def get_dependency_chain(self, thread_id):
+
+        chain = []
+        visited = set()
+
+        def walk(tid):
+
+            if tid in visited:
+                return
+
+            visited.add(tid)
+            chain.append(tid)
+
+            thread = self.thread_map.get(tid)
+
+            if not thread:
+                return
+
+            for dep in thread.get("depends_on", []):
+
+                walk(dep)
+
+        walk(thread_id)
+
+        return chain

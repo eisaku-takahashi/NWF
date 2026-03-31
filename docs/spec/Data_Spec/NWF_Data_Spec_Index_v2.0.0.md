@@ -2,7 +2,7 @@ Source: docs/spec/Data_Spec/NWF_Data_Spec_Index_v2.0.0.md
 Updated: 2026-03-18T11:45:00+09:00
 PIC: Engineer / ChatGPT
 
-# NWF Data Spec v2.0.0
+# NWF Data Spec Index v2.0.0
 
 ---
 

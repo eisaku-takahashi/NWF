@@ -1,5 +1,5 @@
 Source: docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
-Updated: 2026-04-01T21:58:00+09:00
+Updated: 2026-04-02T01:41:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Python Implementation Rules v2.0.1
@@ -8,413 +8,255 @@ PIC: Engineer / ChatGPT
 
 ## 1. 概要
 
-本ドキュメントは、NWF v2.0.1 における Python 実装の標準規格を定義するものである。  
-NWF の Spec 群（Core, Data, Engine, Architecture 等）で定義された「What（何を作るか）」に対し、本 Implementation Rules は「How（どのように Python で実装するか）」を定義する。
+本ドキュメントは、NWF Phase 2 における Python 実装の標準規格を定義するものである。  
+NWF v2.0.1 におけるすべての Python 実装ファイルは、本規格に厳密に従う必要がある。
 
-本規格は NWF Phase 2 – Implementation において作成されるすべての Python ファイルに適用される。
+本規格の目的は以下である。
 
-対象範囲：
-- src/ 以下のすべての Python モジュール
-- audit_logger.py
-- data_state_machine.py
-- nwf_object.py
-- engine / workflow / system / models / loader / utils モジュール
-- tests/ 以下のテストコード
+- コード構造の統一
+- 監査・追跡可能な実装
+- Story OS / NWF Engine の長期保守性確保
+- AI・人間双方による共同開発の標準化
+- Spec Driven Development の実現
 
 ---
 
-## 2. 適用範囲（Scope）
+## 2. 適用範囲
 
-本 Implementation Rules は以下を対象とする。
+本 Implementation Rules は以下に適用される。
 
-1. Python コーディング規約
-2. メタデータヘッダー規格
-3. ディレクトリ構造規格
-4. ログおよび監査ログ規格
-5. 例外・エラーハンドリング規格
-6. NWF Object 実装規格
-7. State Machine 実装規格
-8. 命名規則
-9. タイムスタンプ規格
-10. バージョン管理規格
-11. モジュール依存関係規格
-12. JSON / ファイルフォーマット規格
-13. テスト規格
-14. セキュリティおよび整合性規格
+- NWF Engine
+- Story OS
+- Data Control System
+- Audit System
+- State Machine
+- AI Interface
+- Workflow Engine
+- Core Objects
+- Utilities
+- Logging System
+- Execution System
+- その他 NWF v2.0.1 に属するすべての Python ファイル
 
 ---
 
-## 3. Directory Structure（ディレクトリ構造規格）
+## 3. Python ファイル標準メタデータ
 
-NWF の物理ディレクトリ構造は OS レイヤー構造に対応する。
+すべての Python ファイルは、ファイル冒頭に docstring 形式でメタデータを記述しなければならない。
 
-標準ディレクトリ構造：
+### 3.1 メタデータヘッダー形式
 
-NWF/
-    src/
-        engine/
-        workflow/
-        system/
-        loader/
-        models/
-        utils/
-    data/
-        schema/
-    logs/
-        audit/
-    docs/
-        spec/
-    tests/
+必ず以下の順序で記述すること。
 
-各ディレクトリの役割：
+Source: ファイルパス  
+Updated: ISO 8601 形式 JST  
+PIC: Engineer / ChatGPT  
+Version: NWF v2.0.1  
+Dependencies: 依存 Spec ファイル一覧  
+Docstring: ファイル概要説明  
 
-src/engine/  
-状態遷移、整合性チェックなどのコアロジック。
+### 3.2 例
 
-src/workflow/  
-ワークフロー制御、HITL ゲートなどの処理フロー。
-
-src/system/  
-監査ログ、外部同期、システムインフラ関連。
-
-src/loader/  
-Spec や設定ファイルの読み込み。
-
-src/models/  
-NWF Object などデータ構造定義。
-
-src/utils/  
-共通ユーティリティ。
-
-data/schema/  
-JSON Schema ファイル保存場所。
-
-logs/audit/  
-監査ログ（JSONL）保存場所。
-
-tests/  
-Unit Test / Integration Test。
-
----
-
-## 4. Python Coding Standard
-
-Python 実装は以下の規格に従う。
-
-- PEP 8 準拠
-- PEP 257 Docstring 準拠
-- 型ヒント必須（typing）
-- 変数・関数名は snake_case
-- クラス名は PascalCase
-- 定数は UPPER_CASE
-- print() 使用禁止（logging を使用）
-- Any の使用は最小限
-- すべての関数に戻り値型を明記
-- Optional 型は明示する
-- None を返す関数も -> None を記述
-
----
-
-## 5. Metadata Header & Docstring Rules
-
-すべての Python ファイルの冒頭に必ず docstring 形式でメタデータヘッダーを記述する。
-
-必須項目：
-
-Source: src/<module>/<file>.py
-Updated: ISO 8601 JST
-PIC: Engineer / ChatGPT
-Version: NWF v2.0.1
+Source: src/core/audit_logger.py  
+Updated: 2026-04-01T18:32:00+09:00  
+PIC: Engineer / ChatGPT  
+Version: NWF v2.0.1  
 Dependencies:
+    - docs/spec/Core_Spec/Audit_System.md
+    - docs/spec/Data_Spec/Data_Model.md
 Docstring:
+    Audit Logger モジュール。
+    NWF システム内のすべてのイベント・状態遷移・データ更新を監査ログとして記録する。
 
-Updated の形式：
+---
+
+## 4. Time Policy（時間管理規則）
+
+NWF システムでは、すべての時間は JST 固定とする。
+
+### 4.1 タイムゾーン定義
+
+timezone(timedelta(hours=9)) を必ず使用すること。
+
+### 4.2 タイムスタンプ形式
+
+ISO 8601 形式を使用する。
+
 YYYY-MM-DDTHH:MM:SS+09:00
 
-タイムスタンプは JST 固定とする。
+例:
+2026-04-01T18:52:00+09:00
 
-Python 実装では必ず以下を使用する：
+### 4.3 使用例
 
-timezone(timedelta(hours=9))
-
----
-
-## 6. Naming Rules（命名規則）
-
-命名規則は以下の通り。
-
-File Name:
-snake_case
-例：nwf_object.py
-
-Class Name:
-PascalCase
-例：NWFObject
-
-Function / Variable:
-snake_case
-
-ID:
-Prefix_ID_Number
-例：
-SPEC_CORE_001
-CHAR_HERO_001
-OBJ_STORY_001
-
-Spec File:
-NWF_<Category>_<Name>_vX.X.X.md
+datetime.now(JST).isoformat()
 
 ---
 
-## 7. Timestamp & Time Policy
+## 5. Encapsulation / 公開インターフェース規則
 
-タイムスタンプは以下の規格に従う。
+各 Python モジュールでは __all__ を使用して公開インターフェースを明示すること。
 
-標準形式：
-ISO 8601
+例:
 
-例：
-2026-04-01T21:30:00+09:00
+__all__ = [
+    "AuditLogger",
+    "DataStateMachine",
+    "NWFObject"
+]
 
-タイムゾーン：
-JST (UTC+09:00) 固定
-
-Python 実装では以下を使用する：
-
-timezone(timedelta(hours=9))
-
-ログ・監査ログ・データの created_at / updated_at はすべてこの形式を使用する。
+これにより、外部モジュールからアクセス可能なクラス・関数を制御する。
 
 ---
 
-## 8. Logging & Audit Log Rules
+## 6. コーディング規約
 
-ログは通常ログと監査ログを分離する。
+### 6.1 命名規則
 
-ログレベル：
-DEBUG
-INFO
-WARNING
-ERROR
-CRITICAL
-
-監査ログ仕様：
-
-形式：
-JSONL（1行1JSON）
-
-ポリシー：
-Append Only（追記専用）
-既存ログの編集・削除は禁止。
-
-監査ログ必須フィールド：
-
-timestamp
-event_type
-user
-object_id
-old_state
-new_state
-version
-message
-
-保存場所：
-logs/audit/
+| 対象 | 命名規則 |
+|------|-----------|
+| 変数 | snake_case |
+| 関数 | snake_case |
+| クラス | PascalCase |
+| 定数 | UPPER_CASE |
+| ファイル名 | snake_case |
+| JSONキー | snake_case |
 
 ---
 
-## 9. Exception & Error Handling Rules
+### 6.2 Docstring 規則
 
-エラー処理ポリシー：
+すべてのクラス・関数には Docstring を記述すること。
 
-- Fail Fast（エラー発生時は即停止）
-- 例外は raise する
-- print は使用禁止
-- logging.error に記録
-- 不正な状態遷移は例外
-- 整合性エラーは例外
-- 外部保存失敗時はロールバック
+Docstring には以下を含める。
 
-例外階層：
-
-NWFError
-    NWFValidationError
-    NWFStateTransitionError
-    NWFAuditError
-    NWFSchemaError
-    NWFIntegrityError
-    NWFExecutionError
+- 概要
+- Args
+- Returns
+- Raises（必要な場合）
+- 使用例（重要な場合）
 
 ---
 
-## 10. Data Object Implementation Rules
+### 6.3 コメント規則
 
-NWF Object は以下のフィールドを持つ。
+コメントは日本語で記述すること。
 
-id
-type
-title
-content
-status
-version
-dependencies
-created_at
-updated_at
-created_by
-approved_by
-approved_at
-metadata
+以下を必ず説明する。
 
-JSON Schema と完全一致する必要がある。
-
-Approved 後は metadata 以外の変更は禁止。
-変更が必要な場合は version を更新する。
+- なぜこの処理が必要か
+- 状態遷移の理由
+- データ構造の意味
+- 例外処理の理由
 
 ---
 
-## 11. State Machine Implementation Rules
+## 7. ログ / 監査 / 状態管理
 
-状態遷移は以下の状態を持つ。
+NWF システムでは以下を必須とする。
 
-DRAFT
-REVIEW
-APPROVED
-RELEASED
-ARCHIVED
+### 7.1 必須ログ対象
 
-遷移ルール：
+- システム起動
+- オブジェクト生成
+- 状態遷移
+- データ更新
+- エラー
+- 例外
+- 外部入力
+- AI 実行
+- Workflow 実行
+- ファイル操作
 
-draft → review
-review → approved
-review → draft
-approved → released
-released → archived
+### 7.2 ログレベル
 
-Approved への遷移には以下が必須：
-approved_by
-approved_at
-HITL Gate 通過
-
-不正遷移は例外を発生させる。
-
----
-
-## 12. Versioning Rules
-
-バージョン管理は Semantic Versioning を使用する。
-
-MAJOR.MINOR.PATCH
-
-Spec Version
-Object Version
-Engine Version
-Workflow Version
-
-すべて SemVer に従う。
+| Level | 用途 |
+|------|------|
+| DEBUG | 開発用詳細ログ |
+| INFO | 通常イベント |
+| WARNING | 異常の可能性 |
+| ERROR | エラー |
+| CRITICAL | システム停止レベル |
 
 ---
 
-## 13. Module Dependency Rules（依存関係規格）
+## 8. ファイル構造標準
 
-モジュール依存はレイヤー構造に従う。
+Python ファイルの基本構造は以下とする。
 
-Layer 構造：
-
-system
-engine
-workflow
-application
-
-依存ルール：
-
-上位レイヤー → 下位レイヤー OK
-下位レイヤー → 上位レイヤー NG
-
-例：
-
-workflow → engine OK
-engine → workflow NG
-engine → system OK
-system → engine NG
-
-循環参照は禁止。
+1. Docstring Metadata
+2. import
+3. 定数 / 設定
+4. __all__
+5. Utility Functions
+6. Classes
+7. Main Guard
+8. EOF
 
 ---
 
-## 14. File Encoding / JSON Rules
+## 9. 1-Click Copy 規則
 
-ファイルエンコーディング：
-UTF-8
+成果物として Python ファイルを出力する場合、
 
-JSON 規格：
-- キーは snake_case
-- 単位を明記
-- ISO8601 timestamp
-- UTF-8
-- 改行は LF
+- ファイル全体を 1つのコードブロックに入れる
+- コードブロックは python を指定
+- コードブロック内でバッククォートを使用しない
+- ファイル最終行に必ず EOF を記述
 
-JSONL：
-1行1JSON
-Append Only
+Python の場合の EOF 表記:
 
----
-
-## 15. Testing Rules
-
-tests/ ディレクトリに Unit Test を作成する。
-
-テスト規約：
-
-tests/test_<module>.py
-
-pytest 使用
-State Machine
-NWF Object
-Audit Logger
-Schema Validation
-Workflow Engine
-
-主要モジュールは必ずテストを書く。
-
----
-
-## 16. Security & Integrity Rules
-
-整合性ポリシー：
-
-- Audit Log は改ざん不可
-- Approved データは変更不可
-- Version で履歴管理
-- Schema Validation 必須
-- State Machine を必ず通す
-- 直接 JSON を編集しない
-- Engine 経由でのみ変更
-
----
-
-## 17. EOF / Formatting Rules
-
-Python / Markdown / JSON / Text ファイルの最終行には必ず EOF タグを記述する。
-
-Python:
 # [EOF]
 
-Markdown / Text:
-[EOF]
+---
 
-すべての成果物は 1 つのコードブロックで出力する。
+## 10. Spec Driven Development 規則
+
+NWF の Python 実装は Spec Driven Development に従う。
+
+### 10.1 実装前に必ず確認する Spec
+
+- Core Spec
+- Data Spec
+- Architecture Spec
+- Engine Spec
+- Execution Spec
+- AI Interface Spec
+- Workflow Spec
+- Governance Spec
+
+Spec に存在しない機能は実装してはならない。  
+Spec を先に更新し、その後実装する。
 
 ---
 
-## 18. まとめ
+## 11. バージョン管理規則
 
-本 Implementation Rules は、NWF v2.0.1 の Python 実装における統一規格であり、  
-すべてのモジュール・エンジン・データ管理・監査ログ・状態遷移処理は本規格に従って実装される。
+NWF Python 実装は NWF Spec Version と同期する。
 
-Spec = What（何を作るか）
-Implementation Rules = How（どう実装するか）
-Code = Implementation（実装）
+| Spec Version | Python Implementation |
+|--------------|----------------------|
+| v2.0.1 | v2.0.1 |
+| v2.1.0 | v2.1.0 |
 
-この三層構造により、NWF System の一貫性・再現性・監査性・拡張性を保証する。
+Implementation Rules も Spec Version に合わせる。
+
+---
+
+## 12. まとめ
+
+NWF Python Implementation Rules v2.0.1 の目的は以下である。
+
+- 実装の完全標準化
+- AI と人間の共同開発ルール統一
+- 監査可能なシステム構築
+- Story OS / NWF Engine の長期運用
+- Spec Driven Development の徹底
+- コード品質の長期維持
+- フェーズ開発の安定化
+
+本規格は NWF v2.0.1 のすべての Python 実装に対して強制適用される。
+
+---
 
 [EOF]

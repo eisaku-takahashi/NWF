@@ -1,18 +1,29 @@
 Source: docs/spec/Core_Spec/NWF_Data_Model_v2.0.1.md
-Updated: 2026-03-21T16:41:00+09:00
+Updated: 2026-04-04T00:39:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Data Model v2.0.1
 
 ---
 
-## 1. 問題点と不足Entityの特定
+## 1. 概要（更新）
 
-NWF_Data_Model_v2.0.0 では、Glossary v2.0.1 および Entity ID System v2.0.1 と比較して以下の問題が存在していた。
+本ドキュメントは  
+NWF v2.0.1 における **Story Data Model の標準構造** を定義する。
 
-### 1.1 不足していたEntity
+本バージョンでは、以下を新たに導入・強化する。
 
-v2.0.0 に存在しなかったEntity：
+- Graph指向データモデル
+- Entity関係の明確化
+- 多対多関係の正式定義
+- Timeline独立管理
+- **Kernel Audit System との統合（重要追加）**
+
+---
+
+## 2. 問題点と不足Entityの特定
+
+### 2.1 不足していたEntity（解決済）
 
 Event  
 State  
@@ -20,33 +31,28 @@ Relationship
 Timeline  
 World  
 
-これにより、物語構造・状態変化・人間関係・時系列の管理が不完全であった。
-
-### 1.2 階層構造の問題
+### 2.2 階層構造の問題（解決済）
 
 旧構造：
 
 WorldRule → Character → Thread → Scene → Beat
 
-この構造は物語構造として不適切であり、
-特に Scene / Event / Beat の関係が未定義であった。
+問題：
 
-### 1.3 データモデルの問題
+- Scene / Event / Beat の関係が曖昧
+- 状態変化が構造に含まれていない
 
-- Entity関係が階層モデルに偏っていた
-- 多対多関係の表現ができない
-- Character ↔ Scene ↔ Thread の関係が不明確
-- Timeline が独立概念として扱われていない
-- State の管理場所が定義されていない
+### 2.3 データモデルの問題（解決済）
 
-これらを解決するため、
-v2.0.1 では Graph 指向データモデルを採用する。
+- 多対多関係の欠如
+- Timelineの未独立化
+- State管理不在
+
+→ v2.0.1 では Graphモデルで解決
 
 ---
 
-## 2. 新データ構造図（Graph指向モデル）
-
-NWF v2.0.1 のデータ構造は以下の論理構造を持つ。
+## 3. 新データ構造（Graph指向モデル）
 
 Story
  ├── World
@@ -64,7 +70,7 @@ Story
  │                   └── Beat
  │
  ├── Timeline
- │    └── Scene Timeline / Event Timeline
+ │    └── Scene / Event Timeline
  │
  └── Links
       ├── character_scene_links
@@ -72,33 +78,24 @@ Story
       ├── thread_scene_links
       └── relationship_links
 
-### 2.1 構造軸（Narrative Structure Axis）
+---
 
-Thread  
-↓  
-Scene  
-↓  
-Event  
-↓  
-Beat  
+## 4. 構造定義
 
-これは物語の構造軸である。
+### 4.1 構造軸（Narrative Structure Axis）
 
-### 2.2 動態要素（Dynamic Elements）
+Thread → Scene → Event → Beat
+
+### 4.2 動態要素（Dynamic Elements）
 
 Character  
 State  
 Relationship  
 Timeline  
 
-これらは構造軸とは独立した動的要素として存在し、
-Graph構造で接続される。
-
 ---
 
-## 3. Entity関係マトリックス
-
-各Entityが参照するIDの関係を定義する。
+## 5. Entity関係マトリックス
 
 World
 - world_rule_ids
@@ -113,6 +110,7 @@ Character
 - thread_ids
 - scene_ids
 - event_ids
+- audit_context
 
 Thread
 - related_character_ids
@@ -149,24 +147,54 @@ Timeline
 
 ---
 
-## 4. Story Database 実装ガイドライン
+## 6. Audit System 統合（新規追加）
 
-### 4.1 Database Model
+NWF v2.0.1 では、すべての Entity は  
+**Kernel Audit System と因果関係を持つ必要がある。**
 
-NWF Story Data Store は以下のモデルを採用する。
+### 6.1 Audit Context 定義
+
+各 Entity は以下のフィールドを持つことを推奨する。
+
+audit_context:
+- last_transaction_id
+- created_at_jst
+- updated_at_jst
+- created_by
+- updated_by
+
+### 6.2 Transaction ID
+
+- すべてのデータ変更は transaction_id を持つ
+- transaction_id は Audit Log と完全に一致する
+- UUID形式を推奨
+
+### 6.3 Actor 定義
+
+actor フィールドは以下の形式を許容する：
+
+system:loader  
+system:engine  
+user:12345  
+ai:gpt  
+
+### 6.4 Audit連携ルール
+
+- Entity生成 → CREATEイベント記録
+- Entity更新 → UPDATEイベント記録
+- Entity削除 → DELETEイベント記録
+- State変化 → STATE_TRANSITIONイベント記録
+- Validation失敗 → ERRORイベント記録
+
+---
+
+## 7. Story Database 実装ガイドライン
+
+### 7.1 Database Model
 
 Document-Graph Hybrid Model
 
-特徴：
-
-- EntityはJSONドキュメントとして保存
-- Entity間の関係はID参照で接続
-- Linkテーブルで多対多関係を管理
-- Graph構造として物語関係を表現
-
-### 4.2 JSON保存単位
-
-推奨JSON単位：
+### 7.2 JSON保存単位
 
 worlds.json  
 world_rules.json  
@@ -180,76 +208,55 @@ beats.json
 timeline.json  
 links.json  
 
-### 4.3 Link Table 概念
+### 7.3 Link Table
 
-多対多関係を管理するため、
-Link Table 概念を導入する。
+character_scene_links  
+character_event_links  
+thread_scene_links  
+relationship_links  
 
-例：
+---
 
-character_scene_links
-character_id
-scene_id
+## 8. ID参照原則
 
-character_event_links
-character_id
-event_id
-
-thread_scene_links
-thread_id
-scene_id
-
-relationship_links
-relationship_id
-character_id
-
-これにより循環参照を防ぎつつ、
-Graph構造を表現できる。
-
-### 4.4 ID参照原則
-
-すべてのEntity参照は以下の原則に従う。
-
-- Entityは他EntityをIDで参照する
-- 子Entityは親IDを持つ
-- 多対多関係はLinkテーブルで管理する
-- Entity本体に配列参照を持たせすぎない
+- EntityはIDで参照する
+- 子は親IDを持つ
+- 多対多はLinkテーブル
 - 循環参照は禁止
-- 参照方向は原則として構造軸の上から下
+- 構造軸に従う
 
 ---
 
-## 5. Data Model 設計原則
+## 9. Data Model 設計原則
 
-NWF Data Model v2.0.1 は以下の原則に基づく。
-
-Graph指向データモデル  
-ID参照ベース設計  
-Document Database 互換  
-Git管理可能構造  
-AI解析適合構造  
-拡張可能設計  
-循環参照防止設計  
+- Graph指向
+- ID参照ベース
+- Document DB互換
+- Git管理適合
+- AI解析適合
+- 拡張性
+- Audit対応（重要）
 
 ---
 
-## 6. まとめ
+## 10. まとめ
 
-NWF Data Model v2.0.1 では以下を実現した。
+NWF Data Model v2.0.1 は以下を実現する。
 
-- Glossary v2.0.1 の全Entity統合
-- Thread > Scene > Event > Beat 構造軸確立
-- Character / State / Relationship / Timeline の動態要素化
-- Document-Graph Hybrid Database Model 採用
-- Link Table による多対多関係管理
-- ID参照によるEntity結合
-- 循環参照防止設計
+- 完全なGraph構造
+- 多対多関係管理
+- Timeline管理
+- 状態管理の明確化
+- **Audit Systemとの完全統合**
 
-この Data Model は
-NWF Story Database、
-Engine Architecture、
-AI Authoring System
-の基盤データ構造となる。
+これにより NWF は
+
+- データの完全追跡
+- 状態変化の証拠保存
+- AI生成の説明責任
+- システムの一貫性保証
+
+を実現する。
 
 ---
 

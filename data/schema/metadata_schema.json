@@ -1,0 +1,120 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "NWF Metadata Schema v2.0.1",
+    "description": "Metadata schema for NWF Entities. Defines audit, workflow, and traceability information.",
+    "type": "object",
+    "required": [
+        "source_spec_id",
+        "actor_id",
+        "audit_context"
+    ],
+    "properties": {
+        "source_spec_id": {
+            "type": "string",
+            "description": "Specification ID that defines the data structure.",
+            "pattern": "^SPEC-[A-Z0-9_-]+$"
+        },
+        "actor_id": {
+            "type": "string",
+            "description": "Actor who created or modified the entity (User, AI, System).",
+            "pattern": "^(USR|AI|SYS)-[A-Z0-9_-]+$"
+        },
+        "audit_context": {
+            "type": "object",
+            "description": "Audit and transaction tracking information.",
+            "required": [
+                "last_transaction_id"
+            ],
+            "properties": {
+                "last_transaction_id": {
+                    "type": "string",
+                    "description": "Last transaction ID associated with this entity.",
+                    "pattern": "^TXN-[0-9a-fA-F-]+$"
+                },
+                "audit_log_ref": {
+                    "type": "string",
+                    "description": "Reference to audit log entry."
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Entity creation timestamp (ISO 8601 JST)."
+                },
+                "updated_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Last update timestamp (ISO 8601 JST)."
+                }
+            }
+        },
+        "workflow_context": {
+            "type": "object",
+            "description": "Workflow execution context.",
+            "properties": {
+                "workflow_id": {
+                    "type": "string",
+                    "pattern": "^WKF-[A-Z0-9_-]+$"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "execution_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "traceability": {
+            "type": "object",
+            "description": "Traceability and derivation information.",
+            "properties": {
+                "derivation_source_id": {
+                    "type": "string"
+                },
+                "derivation_type": {
+                    "type": "string",
+                    "enum": [
+                        "CLONE",
+                        "REWRITE",
+                        "BRANCH",
+                        "MERGE",
+                        "IMPORT",
+                        "GENERATE"
+                    ]
+                },
+                "parent_entity_id": {
+                    "type": "string"
+                },
+                "related_entity_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "version_info": {
+            "type": "object",
+            "description": "Version control information.",
+            "properties": {
+                "entity_version": {
+                    "type": "string"
+                },
+                "schema_version": {
+                    "type": "string"
+                },
+                "spec_version": {
+                    "type": "string"
+                }
+            }
+        },
+        "custom_attributes": {
+            "type": "object",
+            "description": "Custom extensible metadata fields.",
+            "additionalProperties": true
+        }
+    },
+    "additionalProperties": false
+}

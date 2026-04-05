@@ -1,564 +1,300 @@
 Source: docs/project/NWF_Development_Roadmap_v2.0.1.md
-Updated: 2026-03-31T21:00:00+09:00
-PIC: Architect / ChatGPT
+Updated: 2026-04-06T03:08:00+09:00
+PIC: Engineer / ChatGPT
 
 # NWF Development Roadmap v2.0.1
 
 ---
 
-## 1. Overview
+## 1. 概要
 
-NWF (Narrative Workflow Framework) は単なる執筆支援ツールではなく、
-**物語生成・管理・最適化を行う Story OS（物語生成基盤）**として設計される。
+NWF（Narrative Workflow Framework）は、
+**物語を生成・管理・進化させるための Narrative Operating System（Story OS）**である。
 
-従来の物語制作は以下のような属人的プロセスで行われてきた。
+本ドキュメントは、NWF を単なるツールではなく
+**因果律を強制する OS として完成させるための開発ロードマップ**を定義する。
 
-* アイデア
-* プロット
-* 執筆
-* 推敲
-* 公開
+NWF の根本定義：
 
-NWFではこれを **データ・ロジック・パイプラインとして再定義**する。
+- Story = Data + Logic + Pipeline
+- Current State = f(Initial State + Σ Transactions)
 
-### Story = Data + Logic + Pipeline
-
-| 要素           | 内容                                             |
-| ------------ | ---------------------------------------------- |
-| Data         | Character / World / Thread / Scene / Emotion 等 |
-| Logic        | Story Engine / Thread Engine / Validation      |
-| Pipeline     | Episode → Scene → Draft → Review → Release     |
-| Governance   | Integrity / Spec / Version 管理                  |
-| Optimization | Feedback → Spec Update                         |
-
-NWFの開発ロードマップは、
-**OS 開発と同じフェーズ構造**で進行する。
-
-### 開発循環構造
-
-Spec → Engine → Workflow → Production → Optimization → Spec
-
-これは一度作って終わりではなく、
-**Recursive Story Generation System**として継続的に進化する。
+本ロードマップは、Spec-Driven Architecture と Kernel-Centric 設計に基づき、
+**仕様・実装・運用を統合した開発戦略**を提示する。
 
 ---
 
-## 2. NWF Architecture Overview
+## 2. Architecture Stack（8層構造）
 
-NWF Story OS は以下の5層構造で構成される。
+NWF は以下の 8 層で構成される。
 
-| Layer      | 内容                                         |
-| ---------- | ------------------------------------------ |
-| Spec       | JSON Schema / Data Model / Rules           |
-| Engine     | Thread Engine / Validation / Generator     |
-| Workflow   | Author Workflow / CLI / Automation         |
-| Production | Episode / Scene / Draft / Release          |
-| Governance | Integrity / Logging / Audit / Optimization |
+### 2.1 Layer Definition
 
-### モジュール構成
+| Layer        | 役割 |
+|--------------|------|
+| Philosophy   | 設計思想（因果律・不変性・正典性） |
+| Spec         | 世界の定義（Schema / Data Model） |
+| Kernel       | 因果律の強制（Audit / State / Transaction） |
+| Engine       | 物語演算（Story / Timeline / Emotion） |
+| Workflow     | 実行制御（AI Collaboration / HITL） |
+| Production   | 出力生成（Scene / Draft / Narrative） |
+| Governance   | 整合性管理（Spec / Audit / Version） |
+| Optimization | 改善ループ（Analysis / Feedback） |
 
-| Module    | 役割                              |
-| --------- | ------------------------------- |
-| Core      | Schema / State Machine / Config |
-| Engine    | Story Logic / Generation        |
-| IO        | File / JSON / Import Export     |
-| Interface | CLI / Prompt / UI               |
-| Governor  | Integrity / Audit / Version     |
+### 2.2 構造原則
 
-### Module Boundary
-
-| Module    | Responsibility                       |
-| --------- | ------------------------------------ |
-| Core      | Data model / schema / state          |
-| Engine    | Story generation logic               |
-| IO        | File operations                      |
-| Interface | User interaction                     |
-| Governor  | Validation / Audit / Release control |
-
-モジュール境界を明確にすることで、
-**Spec変更とEngine変更を分離**できる。
+- 下位層は上位層に依存されるが、逆は不可
+- Kernel は全レイヤの整合性を強制する「重力中心」
+- Spec はすべての実装の正典
 
 ---
 
-## 3. Development Phases
+## 3. Kernel / Core System 責務
 
-NWF Story OS 開発は以下の Phase で進行する。
+Kernel は「物語の物理法則」を実装する。
 
-| Phase   | 名称                        | 内容                              |
-| ------- | ------------------------- | ------------------------------- |
-| Phase 1 | Spec Foundation           | Schema / Data Model             |
-| Phase 2 | Core Engine               | Thread Engine / Validation      |
-| Phase 3 | Workflow                  | Author Workflow / CLI           |
-| Phase 4 | Production Pipeline       | Story Production System         |
-| Phase 5 | Governance / Optimization | Logging / Audit / Feedback Loop |
+### 3.1 Core Responsibilities
 
-### Phase Flow
+- Identity Management（UUID v7）
+- Audit Log（全トランザクション記録）
+- State Machine（状態遷移制御）
+- Transaction（原子操作）
+- Validation（Schema + 因果律）
+- Version Control（Snapshot 管理）
 
-```
-Phase1 → Phase2 → Phase3 → Phase4 → Phase5
-                 ↑                     ↓
-                 ← Recursive Optimization ←
-```
+### 3.2 Kernel Principle
 
----
-
-## 4. Phase Definition of Done
-
-各 Phase の完了条件（Definition of Done）を明確にする。
-
-| Phase   | Definition of Done                            |
-| ------- | --------------------------------------------- |
-| Phase 1 | 全 Schema 定義完了、JSON Validation 成功              |
-| Phase 2 | Thread Engine が Thread → Scene を生成可能          |
-| Phase 3 | Author Workflow が CLI で実行可能                   |
-| Phase 4 | Episode → Scene → Draft → Release Pipeline 稼働 |
-| Phase 5 | Logging / Audit / Feedback Loop 稼働            |
-
-### Phase 完了条件詳細
-
-#### Phase 1
-
-* Character Schema
-* World Schema
-* Thread Schema
-* Scene Schema
-* Emotion Schema
-* Validation Script
-
-#### Phase 2
-
-* Thread Engine
-* Scene Generator
-* Continuity Check
-* State Machine
-
-#### Phase 3
-
-* CLI
-* Project Init
-* Draft Generate
-* Validation Run
-* Build Episode
-
-#### Phase 4
-
-* Episode Pipeline
-* Draft → Review → Release
-* Version 管理
-* Export
-
-#### Phase 5
-
-* Audit Logs
-* Metrics
-* Feedback
-* Spec Update Loop
+- No Log, No Change
+- Append-Only
+- Immutability
 
 ---
 
-## 5. MVP Definition
+## 4. Implementation Dependency Graph
 
-### NWF-Core MVP
+### 4.1 実装順序
 
-MVP（Minimum Viable Product）は
-**Thread → Scene → Draft を生成できる最小構成**。
+Foundation → Kernel → Core → Loader → Engine → Workflow → Governance
 
-| Component  | MVP                        |
-| ---------- | -------------------------- |
-| Schema     | Character / Thread / Scene |
-| Engine     | Thread Engine              |
-| Workflow   | Draft Generator            |
-| Validation | JSON Schema Validation     |
-| Output     | Draft Markdown             |
-| Logging    | Basic Logs                 |
+### 4.2 Dependency Detail
 
-### MVP Pipeline
-
-```
-Thread JSON
-   ↓
-Thread Engine
-   ↓
-Scene List
-   ↓
-Draft Generator
-   ↓
-Draft Markdown
-```
-
-MVP の目的は **Story Engine が動くこと**であり、
-Production / Governance は MVP 以降に追加する。
+1. Entity Schema / Metadata Schema
+2. ID Generator（UUID v7）
+3. AuditLogManager
+4. DataStateManager
+5. EntityManager / VersionManager
+6. SpecParser / SpecRegistry
+7. QueryEngine
+8. Story / Timeline Engine
+9. Workflow（AI Collaboration）
+10. Governance（Audit / Spec Control）
 
 ---
 
-## 6. Dependency Graph / Implementation Order
+## 5. Development Phases
 
-実装順序は Spec First に従う。
+### Phase 1: Spec Foundation（完了）
 
-### Dependency Graph
+内容：
+- Core Spec / Data Spec 定義
 
-| Order | Module              |
-| ----- | ------------------- |
-| 1     | Schema              |
-| 2     | Validation          |
-| 3     | State Machine       |
-| 4     | Thread Engine       |
-| 5     | Scene Generator     |
-| 6     | Draft Generator     |
-| 7     | CLI                 |
-| 8     | Production Pipeline |
-| 9     | Logging             |
-| 10    | Audit               |
-| 11    | Optimization Loop   |
-
-### Implementation Order Diagram
-
-```
-Schema
-  ↓
-Validation
-  ↓
-State Machine
-  ↓
-Thread Engine
-  ↓
-Scene Generator
-  ↓
-Draft Generator
-  ↓
-CLI / Workflow
-  ↓
-Production Pipeline
-  ↓
-Logging / Audit
-  ↓
-Optimization Loop
-```
+DoD：
+- 全 Schema 定義完了
+- JSON Validation 成功
 
 ---
 
-## 7. Directory and Module Structure
+### Phase 2.1: Core Data Control（完了）
 
-### Directory Structure
+内容：
+- Kernel 基本実装
+- Audit Log / State 管理
 
-```
+DoD：
+- Entity 作成 → Audit Log 記録成功
+- State 遷移が正常動作
+
+---
+
+### Phase 2.2: Integrity & Validation（次）
+
+内容：
+- Validation System 強化
+- 状態遷移の厳密化
+
+DoD：
+- 不正データの完全拒否
+- Schema + 因果律の統合検証
+
+---
+
+### Phase 3: Engine Integration
+
+内容：
+- Story Engine / Timeline Engine 実装
+
+DoD：
+- Entity → Plot 構造生成可能
+
+---
+
+### Phase 4: AI Workflow & HITL
+
+内容：
+- AI Collaboration Model 実装
+- Antigravity 連携
+
+DoD：
+- AI + Human による共同制作
+- Audit Log ベースの操作統合
+
+---
+
+### Phase 5: Production Pipeline
+
+内容：
+- Scene → Draft → Release Pipeline
+
+DoD：
+- 物語生成フロー完全稼働
+
+---
+
+### Phase 6: Governance System
+
+内容：
+- Audit / Version / Spec Governance
+
+DoD：
+- 全変更が追跡可能
+- Spec と実装の整合性維持
+
+---
+
+### Phase 7: Optimization Loop
+
+内容：
+- Analysis / Feedback / Spec Update
+
+DoD：
+- Recursive Improvement Loop 稼働
+
+---
+
+## 6. MVP Definition
+
+### 6.1 Kernel MVP
+
+- UUID v7 ID
+- Audit Log（JSONL）
+- 基本 State 管理
+
+### 6.2 Engine MVP
+
+- Query Engine
+- Timeline ソート
+
+### 6.3 Workflow MVP
+
+- GitHub Sync
+- AI ブリーフィング
+
+---
+
+## 7. Development Lifecycle
+
+### 7.1 OS Development Loop
+
+Spec → Kernel → Engine → Workflow → Production → Governance → Optimization → Spec
+
+### 7.2 Story Production Loop
+
+Idea → World → Character → Thread → Scene → Draft → Review → Release → Feedback → Improve
+
+---
+
+## 8. Directory / Module 対応
+
+### 8.1 Directory Structure
+
 NWF/
  ├── docs/
- ├── specs/
- ├── engine/
- ├── workflow/
- ├── production/
- ├── governor/
- ├── scripts/
- ├── projects/
+ ├── src/
+ ├── data/
  ├── logs/
- └── config/
-```
 
-### Phase / Directory / Script 対応表
+### 8.2 Module Mapping
 
-| Phase   | Directory  | Script             |
-| ------- | ---------- | ------------------ |
-| Phase 1 | specs      | validate_schema.py |
-| Phase 2 | engine     | thread_engine.py   |
-| Phase 3 | workflow   | cli.py             |
-| Phase 4 | production | build_episode.py   |
-| Phase 5 | governor   | audit_log.py       |
-
----
-
-## 8. Data State Machine
-
-NWF ではすべてのデータは状態を持つ。
-
-### State Machine
-
-| State     | 意味        |
-| --------- | --------- |
-| Draft     | 作成中       |
-| Validated | Schema OK |
-| Approved  | 人間レビュー OK |
-| Committed | 本採用       |
-| Archived  | 保管        |
-
-### State Transition
-
-```
-Draft → Validated → Approved → Committed → Archived
-```
-
-Human-in-the-Loop Governance により
-**Approved は必ず人間が行う。**
+| Module | 役割 |
+|--------|------|
+| core   | Kernel 実装 |
+| models | Entity 定義 |
+| loader | Spec 読み込み |
+| engine | 物語演算 |
+| workflow | 制御 |
+| governance | 監査 |
 
 ---
 
-## 9. Project Lifecycle
+## 9. Logging / Audit / Governance
 
-### OS 開発ライフサイクル
+### 9.1 Log Types
 
-| Stage        | 内容               |
-| ------------ | ---------------- |
-| Concept      | 設計思想             |
-| Spec         | Schema / Rules   |
-| Engine       | Logic            |
-| Workflow     | Author Tools     |
-| Production   | Story Production |
-| Optimization | 改良               |
-| Next Version | Spec Update      |
+- Audit Log（不可変）
+- Engine Log
+- Validation Log
+- Error Log
 
-### 作品制作ライフサイクル
+### 9.2 Policy
 
-| Stage     | 内容    |
-| --------- | ----- |
-| Idea      | コンセプト |
-| World     | 世界設定  |
-| Character | 登場人物  |
-| Thread    | 物語構造  |
-| Scene     | シーン   |
-| Draft     | 下書き   |
-| Review    | 推敲    |
-| Release   | 公開    |
-| Feedback  | 反応    |
-| Improve   | 改良    |
+- Audit Log は削除不可
+- すべての変更は Transaction 経由
 
 ---
 
-## 10. Testing Strategy
+## 10. Critical Path
 
-### テスト戦略
+最優先課題：
 
-| Test Type        | 内容               |
-| ---------------- | ---------------- |
-| Schema Test      | JSON Schema      |
-| Logic Test       | Engine           |
-| Pipeline Test    | Episode Pipeline |
-| Prompt Test      | LLM Prompt       |
-| Integration Test | End-to-End       |
-
-### テストレイヤ
-
-```
-Schema Test
-   ↓
-Engine Test
-   ↓
-Pipeline Test
-   ↓
-Integration Test
-```
+- UUID v7 への統一
+- subject_id 命名統一
+- Validation System 完成
+- Audit Log 完全強制
 
 ---
 
-## 11. Logging and Audit Policy
+## 11. Next Action
 
-### Logging Policy
+Phase 2.2 移行条件：
 
-| Log            | 内容         |
-| -------------- | ---------- |
-| Engine Log     | 生成ログ       |
-| Validation Log | Schema     |
-| Pipeline Log   | Production |
-| Audit Log      | 承認・変更      |
-| Error Log      | エラー        |
+- Kernel 動作安定
+- Schema 完全適用
+- Audit Log 整合性確認
 
-### Log Rotation
+次ステップ：
 
-| Policy  | 内容      |
-| ------- | ------- |
-| Daily   | 通常ログ    |
-| Weekly  | Audit   |
-| Monthly | Archive |
-
-監査ログは削除不可。
+- Validation System 実装
+- Concurrency Control Spec 作成
+- Temporal Management Spec 作成
 
 ---
 
-## 12. Config Hierarchy
+## 12. まとめ
 
-設定は階層構造を持つ。
+NWF は以下の原則に基づく：
 
-| Level   | Config       |
-| ------- | ------------ |
-| System  | NWF 全体       |
-| Model   | LLM / Engine |
-| Project | 作品設定         |
-| Episode | 個別設定         |
+- Spec First
+- Kernel-Centric
+- Causality Driven
+- Immutability
+- Human-in-the-loop
+- Recursive Optimization
 
-### Hierarchy
+NWF はツールではなく、
 
-```
-system.yaml
-   ↓
-model.yaml
-   ↓
-project.yaml
-   ↓
-episode.yaml
-```
+**「物語の因果律を管理する OS」**
 
----
-
-## 13. Developer Workflow
-
-### Spec-First Workflow
-
-```
-1. Spec 作成
-2. Schema 作成
-3. Validation 作成
-4. Engine 実装
-5. Test
-6. CLI
-7. Release
-```
-
-### 開発フロー
-
-| Step       | 内容         |
-| ---------- | ---------- |
-| Spec       | Data Model |
-| Engine     | Logic      |
-| Test       | Validation |
-| Workflow   | CLI        |
-| Release    | Version    |
-| Production | Story      |
-| Feedback   | Improve    |
-
----
-
-## 14. Release and Versioning Strategy
-
-### Version 種類
-
-| Version            | 内容             |
-| ------------------ | -------------- |
-| Spec Version       | Schema         |
-| Engine Version     | Engine         |
-| Workflow Version   | CLI            |
-| Production Version | Story Pipeline |
-| OS Version         | NWF 全体         |
-
-### Release Flow
-
-```
-Spec Freeze
-   ↓
-Engine Release
-   ↓
-Workflow Release
-   ↓
-Production Release
-   ↓
-Version Tag
-```
-
----
-
-## 15. Story Production Pipeline
-
-### Pipeline
-
-```
-World
-Character
-Thread
-Scene
-Emotion
-   ↓
-Episode Plan
-   ↓
-Scene Draft
-   ↓
-Draft
-   ↓
-Review
-   ↓
-Release
-```
-
-### Episode Production Table
-
-| Step    | Output     |
-| ------- | ---------- |
-| Thread  | Structure  |
-| Scene   | Scene List |
-| Draft   | Text       |
-| Review  | Edited     |
-| Release | Published  |
-
----
-
-## 16. Recursive Optimization Loop
-
-NWF は自己改善ループを持つ。
-
-### Optimization Loop
-
-```
-Story Production
-      ↓
-Metrics / Feedback
-      ↓
-Problem Detection
-      ↓
-Spec Update
-      ↓
-Engine Update
-      ↓
-Next Production
-```
-
-### Integrity Driven Development
-
-重要な思想：
-
-* Integrity First
-* Spec First
-* Human Approval
-* Audit Trail
-* Version Control
-* Recursive Improvement
-
----
-
-## 17. Final Roadmap Summary
-
-### NWF Story OS 開発全体図
-
-```
-Spec
- ↓
-Engine
- ↓
-Workflow
- ↓
-Production
- ↓
-Governance
- ↓
-Optimization
- ↓
-Spec Update
-```
-
-### NWF 開発思想まとめ
-
-| Principle                       | 説明       |
-| ------------------------------- | -------- |
-| NWF は執筆ツールではない                  | Story OS |
-| Spec First                      | 仕様が先     |
-| Human in Loop                   | 人間承認     |
-| Recursive                       | 再帰改善     |
-| Integrity                       | 一貫性      |
-| Story = Data + Logic + Pipeline | 物語の再定義   |
-| OS Development Model            | OS開発型    |
-| Version Governance              | 版管理      |
-
-NWF は物語を書くためのツールではなく、
-**物語を生成・管理・進化させる OS である。**
-
-このロードマップは
-**NWF Story OS を構築するための最上位設計文書である。**
+である。
 
 ---
 

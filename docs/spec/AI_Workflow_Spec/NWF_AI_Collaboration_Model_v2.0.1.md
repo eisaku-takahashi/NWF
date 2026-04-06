@@ -1,5 +1,5 @@
 Source: docs/spec/AI_Workflow_Spec/NWF_AI_Collaboration_Model_v2.0.1.md
-Updated: 2026-03-28T19:15:00+09:00
+Updated: 2026-04-06T13:10:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF AI Collaboration Model v2.0.1
@@ -8,280 +8,300 @@ PIC: Engineer / ChatGPT
 
 ## 1. 概要
 
-本ドキュメントは、NWF v2.0.1（Story OS）における  
-**Human（人間）・AI Agents（AIエージェント群）・System Engines（システムエンジン）**  
-の三者協調構造を定義する。
+本ドキュメントは、NWF v2.0.1 における AI Collaboration Model（AI 協調作業モデル）を定義するものである。
 
-本モデルは単一AIによる制作ではなく、役割分担された複数のAIエージェントと論理エンジン、
-そして最終意思決定者としての人間が協調して作品制作を行う
-**Digital Creative Team（デジタル創作チーム）** の組織構造と運用規律を定義することを目的とする。
+NWF における AI Collaboration Model は、単なる AI 支援ツールではなく、System Engine（論理・因果律）と AI Agent（創造・文脈生成）が、人間（Architect / Director）を最終意思決定者として協調動作する自律ワークフローシステムである。
 
----
+本モデルは以下の目的を持つ。
 
-## 2. The Creative Trinity（創作三位一体モデル）
-
-NWF Story OS は以下の三者によって構成される。
-
-### 2.1 Human（The Decision Maker）
-人間は意思決定者であり、最終責任者である。
-
-役割：
-- アイデアの発案
-- 各制作フェーズの承認
-- 方向性の決定
-- 作家性・テーマの最終決定
-- 最終成果物の承認
-
-AIやEngineは人間の意思を補助・拡張する存在であり、
-最終判断は常にHumanが行う。
+- AI と System Engine の責務分離
+- 人間の最終承認を含む Human-in-the-Loop の実現
+- 全 AI 出力の監査・追跡可能性の確保
+- Execution Pipeline との統合
+- Audit System への完全な履歴保存
 
 ---
 
-### 2.2 AI Agents（The Creative Intelligence）
-AIエージェントは創作知能として機能し、
-それぞれ専門的な役割（Role）を持つ。
+## 2. AI Agent Roles 定義
 
-AIはEngineの論理結果を基に、
-物語・文章・構造・分析などの創作作業を行う。
+NWF v2.0.1 では、AI は単一の存在ではなく、複数の役割（Role）を持つ Agent 群として定義される。
 
-AI Agents は直接データ整合性を保証するのではなく、
-**論理的事実を物語表現へ変換する役割** を持つ。
+### 2.1 Agent Roles 一覧
 
----
+| Role | 責務 | 関連 Engine |
+| --- | --- | --- |
+| Architect (Director) | 人間。最終意思決定、承認、方向性決定 | 全 Engine |
+| Orchestrator | Agent の実行順序制御、タスク管理、競合解決 | Execution Pipeline |
+| Author Agent | 文章、ナラティブ、コンテンツ生成 | Narrative / Story Engine |
+| Logic Agent | 因果律、ルール、整合性チェック | Simulation / Event Engine |
+| Analyst Agent | データ分析、感情曲線、品質評価 | Analysis / Emotional Engine |
+| Chronicle Agent | 時間軸、履歴、世界線管理 | Timeline Engine |
 
-### 2.3 System Engines（The Logical Backbone）
-System Engine は論理基盤であり、
-AIではなく計算・検証・整合性管理を担当する。
+### 2.2 Architect（Human）の役割
 
-役割：
-- Timeline 計算
-- World Rule 整合性
-- Character State 管理
-- Event 因果関係管理
-- 感情曲線計算
-- Thread 構造管理
-- データ整合性チェック
+Architect は以下の権限を持つ。
 
-Engine は **物語を作らない**。  
-Engine は **論理的に正しい状態（State / Fact）を計算する**。
+- Goal の設定
+- Agent 出力の承認 / 修正 / 棄却
+- Commit の最終承認
+- Spec 変更の承認
+- System の方向性決定
 
----
-
-## 3. AI Agent Organization Chart
-
-NWF v2.0.1 では以下のエージェントロールを定義する。
-
-### 3.1 Planner
-役割：
-- プロット構造設計
-- Thread構造設計
-- 章構成
-- イベントの因果関係設計
-- ストーリー全体の構造設計
+AI はいかなる場合も Architect の承認なしに Audit Log へ Commit できない。
 
 ---
 
-### 3.2 Narrative Strategist
-役割：
-- 視点（POV）設計
-- 情報開示順序設計
-- 語りのトーン設計
-- 読者体験設計
-- テーマの表現方法設計
+## 3. Engine と Agent の責務分離
+
+NWF において、System Engine と AI Agent は明確に役割が分離される。
+
+### 3.1 System Engine（論理・制約）
+
+System Engine の責務は以下とする。
+
+- 因果律の適用
+- データ型検証
+- Temporal 整合性検証
+- 状態遷移検証
+- Validation 実行
+- Audit Commit 管理
+- 物理的・論理的に不可能な状態の排除
+
+Engine は Hard Constraints（強制制約）を提供する。
+
+### 3.2 AI Agent（創造・提案）
+
+AI Agent の責務は以下とする。
+
+- コンテンツ生成
+- 提案（Draft）生成
+- 文脈理解
+- 意味的整合性評価
+- 改善提案
+- Rewrite / Refinement
+
+AI Agent は Creative Proposals（創造的提案）を生成するが、
+最終的な正当性は Engine によって検証される。
+
+### 3.3 Engine と Agent の関係
+
+関係は以下の通り。
+
+1. Agent が Draft を生成
+2. Engine が Validation を実行
+3. Validation を通過したデータのみ Commit 可能
+4. Architect が最終承認
+5. Audit System に記録
 
 ---
 
-### 3.3 Writer（Authoring Agent）
-役割：
-- 地の文の執筆
-- セリフ作成
-- シーン描写
-- 心理描写
-- 文章の具体化
+## 4. AI Workflow Pipeline
 
-Writer は Engine が確定した事実を基に文章を生成する。
+AI Collaboration Workflow は、4-Step Loop として定義される。
 
----
+### 4.1 4-Step Loop
 
-### 3.4 Critic（Analysis Agent）
-役割：
-- プロットの矛盾検出
-- キャラクター行動の不整合検出
-- テーマとの乖離検出
-- 感情曲線の問題点分析
-- 伏線構造の分析
-- 物語品質評価
+1. Briefing
+2. Generation
+3. Cross-Validation
+4. Review & Commit
 
----
+### 4.2 Briefing
 
-### 3.5 Validator
-役割：
-- World Rule 整合性チェック
-- Timeline 整合性チェック
-- Character State 整合性チェック
-- Event 因果関係検証
-- データ矛盾検出
+入力:
 
-Validator は物語ではなく **論理整合性** を検証する。
+- Goal
+- Constraints
+- Spec Version
+- Context Data
+- Temporal Range
 
----
+Orchestrator または Architect が Workflow を開始する。
 
-### 3.6 Director（Orchestrator）
-役割：
-- 各AI Agentの出力統合
-- Writer / Critic / Planner のバランス調整
-- 制作パイプライン管理
-- 最終アウトプット統合
-- Humanへの提出物作成
+### 4.3 Generation（Parallel Execution）
 
-Director は AI 制作チームの指揮官に相当する。
+複数 Agent が並行して Draft を生成する。
 
----
+例:
 
-## 4. Agent-Engine Interaction Model
+- Author Agent → コンテンツ生成
+- Logic Agent → ルール適用
+- Analyst Agent → 品質評価
+- Chronicle Agent → 時系列整合性確認
 
-AI Agent と System Engine の関係を定義する。
+### 4.4 Cross-Validation
 
-基本原則：
+以下の検証を実行する。
 
-1. Engine は論理的事実を計算する
-2. AI Agent はその事実を物語表現へ変換する
-3. AI Agent は Engine を直接変更しない
-4. Engine の出力は制約条件として扱う
+- Engine Validation（論理検証）
+- Analyst Validation（意味・品質検証）
+- Temporal Validation（時間整合性）
+- Concurrency Validation（競合検証）
+- Spec Validation（Spec 準拠検証）
 
-データの流れ：
+### 4.5 Review & Commit
 
-Engine Output（State / Fact）
-→ AI Interface
-→ AI Agent
-→ Narrative / Text / Analysis
-→ Director
-→ Human Approval
-
-つまり、
-
-**Engine = Logic**  
-**AI Agent = Narrative**  
-**Human = Decision**
-
-という役割分担になる。
+1. Architect がレビュー
+2. 修正 / 承認 / 棄却
+3. 承認されたデータに UUID を付与
+4. Audit System に Commit
+5. State が確定
 
 ---
 
-## 5. Human-in-the-Loop Protocol
+## 5. Draft / Validation / Commit 状態モデル
 
-NWF v2.0.1 では人間による承認ゲートを定義する。
+AI Workflow におけるデータ状態は以下のように定義される。
 
-主な承認フェーズ：
+| State | 説明 |
+| --- | --- |
+| Ghost | Agent 出力直後の未確定状態 |
+| Draft | 編集可能状態 |
+| Validated | Engine Validation 通過 |
+| Approved | Architect 承認済み |
+| Committed | Audit Log に記録済み |
+| Archived | 履歴保存状態 |
 
-1. Idea Approval
-2. World Setting Approval
-3. Character Approval
-4. Plot Structure Approval
-5. Draft Approval
-6. Revision Approval
-7. Final Approval
-
-すべての重要フェーズで Human の承認を必須とする。
-
-これにより、
-AIによる暴走やテーマ逸脱を防止し、
-作品の最終責任を人間が保持する。
+状態遷移は Execution Pipeline に従う。
 
 ---
 
-## 6. Collaboration Pipeline
+## 6. Execution Pipeline との統合
 
-AIエージェント間の制作フローを定義する。
+AI Workflow は Execution Pipeline のフックポイントに接続される。
 
-基本的な制作パイプライン：
+### 6.1 Pipeline Hook Points
 
-1. Human → Idea 提出
-2. Planner → プロット構造設計
-3. Narrative Strategist → 視点・語り設計
-4. Engine → Timeline / State 計算
-5. Writer → シーン執筆
-6. Validator → 整合性チェック
-7. Critic → 物語分析・批評
-8. Director → 修正統合
-9. Human → 承認
-10. Final Output
+| Pipeline Stage | AI Workflow Action |
+| --- | --- |
+| Fetch | Context / Temporal Data 取得 |
+| Pre-Execute | AI Draft 生成 |
+| Execute | Engine 計算 + AI 推論 |
+| Post-Execute | AI 評価・分析 |
+| Validate | Engine Validation |
+| Commit | Audit System 書き込み |
 
-この流れにより、
-物語制作は単一AIではなく、
-**役割分担されたAIチームによる制作**となる。
+AI Workflow は Pipeline の外側ではなく、Pipeline に統合される。
 
 ---
 
-## 7. Conflict Resolution
+## 7. AI Workflow Governance
 
-AIエージェント間で意見が対立した場合の規則を定義する。
+AI は Spec Governance に従う必要がある。
 
-例：
-- Writer：ドラマ性を優先
-- Validator：整合性違反を指摘
-- Critic：テーマ逸脱を指摘
+### 7.1 Immutability
 
-調停優先順位：
+AI は以下を変更できない。
 
-1. System Engine（論理整合性）
-2. Validator（設定整合性）
-3. Critic（物語品質）
-4. Planner（構造）
-5. Writer（表現）
-6. Director（総合判断）
-7. Human（最終決定）
+- 過去の Audit Log
+- Commit 済みデータ
+- UUID
+- Timestamp
+- Kernel Data
 
-最終決定権は常に Human が持つ。
+### 7.2 Traceability
 
----
+以下を全て Audit Log に記録する。
 
-## 8. Maintenance & Scaling
+- Prompt
+- AI Response
+- Validation Result
+- Approval Result
+- Commit User
+- Timestamp
+- Spec Version
 
-AIエージェントロールの追加・拡張に関する規則。
+すべての AI 出力は再現可能でなければならない。
 
-拡張可能な例：
-- Dialogue Specialist
-- Emotion Designer
-- Worldbuilding Specialist
-- Foreshadowing Designer
-- Pacing Controller
-- Theme Analyst
+### 7.3 Spec Alignment
 
-新しい Agent を追加する場合は以下を定義すること：
+AI は以下を守る必要がある。
 
-- Role Name
-- Responsibility
-- Input Data
-- Output Data
-- Related Engine
-- Pipeline Position
+- 現在の Spec Version
+- Data Format
+- Metadata Rules
+- Validation Rules
+- Naming Rules
+- Execution Rules
 
-これにより NWF は将来的に
-**拡張可能なAI制作組織**としてスケールする。
+Spec に違反する出力は Validation Error とする。
 
 ---
 
-## 9. まとめ
+## 8. Agent 拡張モデル
 
-NWF AI Collaboration Model は、
+NWF AI System は拡張可能な Agent Architecture を採用する。
 
-- Human（意思決定）
-- AI Agents（創作知能）
-- System Engines（論理基盤）
+### 8.1 Plugin Agent Architecture
 
-の三者によって構成される。
+新しい Agent を追加可能。
 
-System Engine が論理を保証し、
-AI Agent が物語を創作し、
-Human が最終意思決定を行う。
+例:
 
-この構造により NWF Story OS は
-単一AIツールではなく、
+- World Rule Agent
+- Physics Agent
+- Economy Agent
+- Character Behavior Agent
+- Dialogue Agent
+- Visual Design Agent
 
-**人間 + 複数AI + 論理エンジンによる創作オペレーティングシステム**
+### 8.2 Self-Refinement Loop
 
-として機能する。
+AI は以下のループを実行可能。
+
+1. Draft 作成
+2. Self Analysis
+3. Rewrite
+4. Validation
+5. Improvement Proposal
+
+これを Rewrite Loop と呼ぶ。
+
+---
+
+## 9. AI Collaboration Architecture Summary
+
+NWF AI Collaboration Model は三層構造で定義される。
+
+| Layer | Component | 役割 |
+| --- | --- | --- |
+| Layer 1 | Kernel | 監査・時間・不変データ |
+| Layer 2 | Engine | 論理・因果律・検証 |
+| Layer 3 | Workflow | AI と Human の協働作業 |
+
+### 9.1 三権分立モデル
+
+NWF System は以下の三権構造を持つ。
+
+| Role | 機能 |
+| --- | --- |
+| Kernel | 絶対的な事実の管理 |
+| Engine | 論理と因果律の管理 |
+| Human / AI Workflow | 意思決定と創造 |
+
+この構造により、
+
+- データの不変性
+- 論理の整合性
+- 創造性
+- 人間の意思決定
+
+を同時に実現する。
+
+---
+
+## 10. まとめ
+
+NWF AI Collaboration Model は以下を実現するためのシステムである。
+
+- AI と Engine の責務分離
+- Human-in-the-Loop Workflow
+- 完全な監査可能性
+- Execution Pipeline 統合
+- Spec Governance 準拠
+- Agent 拡張可能な Architecture
+
+本モデルは NWF v2.0.1 における AI Workflow の基盤仕様となる。
 
 ---
 

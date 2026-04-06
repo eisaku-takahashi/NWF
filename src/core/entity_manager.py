@@ -1,35 +1,38 @@
 """
 Source: src/core/entity_manager.py
-Updated: 2026-04-04T20:18:00+09:00
+Updated: 2026-04-07T07:52:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Core_Spec/NWF_Data_Model_v2.0.1.md
     - docs/spec/Core_Spec/NWF_Entity_ID_System_v2.0.1.md
     - docs/spec/Core_Spec/NWF_State_Transition_Model_v2.0.1.md
-    - docs/spec/Data_Spec/NWF_Data_Spec_Index_v2.0.1.md
+    - docs/spec/Core_Spec/NWF_File_System_v2.0.1.md
     - docs/spec/Kernel_Spec/NWF_Kernel_Audit_System_Spec_v2.0.1.md
+    - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
 Docstring:
     Entity Manager モジュール。
-    NWF システムにおける Entity の生成、取得、更新、アーカイブ、
-    および Entity 間の関係管理を担当するコアコンポーネント。
-    DataStateManager、VersionManager、MetadataManager、AuditLogger と連携し、
-    Entity のライフサイクル全体を管理する。
+    NWF における Entity の生成・取得・更新・論理削除を統制する中核コンポーネント。
+    各種 Manager（IdGenerator / MetadataManager / DataStateManager / VersionManager /
+    AuditLogManager）と連携し、因果律とトランザクション整合性を保証する。
 """
 
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
 from src.models.nwf_object import NWFObject
-from src.core.audit_logger import AuditLogger
+from src.core.id_generator import IdGenerator
+from src.core.metadata_manager import MetadataManager
 from src.core.data_state_manager import DataStateManager
+from src.core.version_manager import VersionManager
+from src.core.audit_log_manager import AuditLogManager
 
 # JST タイムゾーン定義
 JST = timezone(timedelta(hours=9))
 
-# Entity 保存ディレクトリ
+# デフォルト保存ディレクトリ
 DEFAULT_ENTITY_DIR = "data/state/entities"
 
 __all__ = [
@@ -51,36 +54,39 @@ class EntityManager:
     """
     EntityManager クラス。
 
-    NWF における Entity の CRUD 操作、永続化、レジストリ管理、
-    および Entity 間の Relationship 管理を行う。
-
-    Attributes:
-        entity_dir (str): Entity 保存ディレクトリ
-        registry (Dict[str, NWFObject]): メモリ上の Entity レジストリ
-        state_manager (DataStateManager): 状態管理マネージャ
-        audit_logger (AuditLogger): 監査ログロガー
+    Entity のライフサイクル管理と因果律同期を担う。
+    各種 Manager をオーケストレーションし、トランザクション単位で整合性を保証する。
     """
 
     def __init__(
         self,
         entity_dir: str = DEFAULT_ENTITY_DIR,
+        id_generator: Optional[IdGenerator] = None,
+        metadata_manager: Optional[MetadataManager] = None,
         state_manager: Optional[DataStateManager] = None,
-        audit_logger: Optional[AuditLogger] = None,
+        version_manager: Optional[VersionManager] = None,
+        audit_log_manager: Optional[AuditLogManager] = None,
     ):
         """
-        EntityManager 初期化。
+        初期化処理。
 
         Args:
             entity_dir (str): Entity 保存ディレクトリ
-            state_manager (DataStateManager): 状態管理マネージャ
-            audit_logger (AuditLogger): 監査ログロガー
+            id_generator (IdGenerator): ID生成器
+            metadata_manager (MetadataManager): メタデータ管理
+            state_manager (DataStateManager): 状態管理
+            version_manager (VersionManager): バージョン管理
+            audit_log_manager (AuditLogManager): 監査ログ管理
         """
         self.entity_dir = entity_dir
         self.registry: Dict[str, NWFObject] = {}
-        self.state_manager = state_manager
-        self.audit_logger = audit_logger
 
-        # ディレクトリが存在しない場合は作成
+        self.id_generator = id_generator or IdGenerator()
+        self.metadata_mgr = metadata_manager or MetadataManager()
+        self.state_mgr = state_manager or DataStateManager()
+        self.version_mgr = version_manager or VersionManager()
+        self.audit_mgr = audit_log_manager or AuditLogManager()
+
         os.makedirs(self.entity_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -88,59 +94,62 @@ class EntityManager:
     # ------------------------------------------------------------------
     def create_entity(
         self,
-        subject_id: str,
         entity_type: str,
-        content: Dict[str, Any],
+        attributes: Dict[str, Any],
         actor_id: str,
+        transaction_id: str,
     ) -> NWFObject:
         """
-        Entity を新規作成する。
+        Entity を生成する。
 
         Args:
-            subject_id (str): Entity ID
-            entity_type (str): Entity タイプ
-            content (Dict[str, Any]): Entity コンテンツ
-            actor_id (str): 作成者 ID
+            entity_type (str): Entity種別
+            attributes (Dict[str, Any]): 属性データ
+            actor_id (str): 実行者ID
+            transaction_id (str): トランザクションID
 
         Returns:
-            NWFObject: 作成された Entity
-
-        Raises:
-            ValueError: 既に同じ ID が存在する場合
+            NWFObject: 作成されたEntity
         """
-        if subject_id in self.registry:
-            raise ValueError(f"Entity already exists: {subject_id}")
+        # ID生成（Spec準拠）
+        subject_id = self.id_generator.generate_id(entity_type)
 
-        metadata = {
-            "created_at": _now_jst_iso(),
-            "updated_at": _now_jst_iso(),
-            "actor_id": actor_id,
-        }
+        # メタデータ生成
+        metadata = self.metadata_mgr.create_metadata(actor_id, transaction_id)
 
         entity = NWFObject(
             subject_id=subject_id,
             entity_type=entity_type,
             state="DRAFT",
             version="1.0.0",
-            content=content,
+            content=attributes,
             metadata=metadata,
             relationships=[],
         )
 
-        # レジストリ登録
-        self.registry[subject_id] = entity
-
         # 永続化
         self._save_entity(entity)
 
-        # 監査ログ
-        if self.audit_logger:
-            self.audit_logger.log_event(
-                event_type="CREATE_ENTITY",
-                actor_id=actor_id,
-                target_id=subject_id,
-                payload={"entity_type": entity_type},
-            )
+        # レジストリ登録
+        self.registry[subject_id] = entity
+
+        # 監査ログ（因果確定）
+        event_id = self.audit_mgr.record_event(
+            event_type="CREATE_ENTITY",
+            actor_id=actor_id,
+            target_id=subject_id,
+            payload={"entity_type": entity_type},
+            transaction_id=transaction_id,
+        )
+
+        # audit_context 更新
+        self.metadata_mgr.update_audit_context(
+            entity.metadata,
+            transaction_id=transaction_id,
+            event_id=event_id,
+        )
+
+        self._save_entity(entity)
 
         return entity
 
@@ -155,16 +164,16 @@ class EntityManager:
             subject_id (str): Entity ID
 
         Returns:
-            Optional[NWFObject]: Entity オブジェクト
+            Optional[NWFObject]: Entity
         """
         if subject_id in self.registry:
             return self.registry[subject_id]
 
-        entity_path = self._get_entity_path(subject_id)
-        if not os.path.exists(entity_path):
+        path = self._get_entity_path(subject_id)
+        if not os.path.exists(path):
             return None
 
-        with open(entity_path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         entity = NWFObject.from_dict(data)
@@ -179,52 +188,76 @@ class EntityManager:
         subject_id: str,
         updates: Dict[str, Any],
         actor_id: str,
-    ) -> Optional[NWFObject]:
+        transaction_id: str,
+    ) -> bool:
         """
-        Entity を更新する（Immutable 原則に基づき version 更新）。
+        Entity 更新処理。
 
         Args:
             subject_id (str): Entity ID
             updates (Dict[str, Any]): 更新内容
-            actor_id (str): 更新者 ID
+            actor_id (str): 実行者
+            transaction_id (str): トランザクションID
 
         Returns:
-            Optional[NWFObject]: 更新後 Entity
+            bool: 成功可否
         """
         entity = self.get_entity(subject_id)
         if not entity:
-            return None
+            return False
 
-        # content 更新
+        # 属性更新
         entity.content.update(updates)
-        entity.metadata["updated_at"] = _now_jst_iso()
-        entity.metadata["actor_id"] = actor_id
 
-        # version patch increment
-        entity.version = self._increment_patch_version(entity.version)
+        # メタデータ更新
+        self.metadata_mgr.update_metadata(
+            entity.metadata,
+            actor_id=actor_id,
+            transaction_id=transaction_id,
+        )
+
+        # バージョン更新
+        entity.version = self.version_mgr.increment_patch(entity.version)
+
+        # 永続化
+        self._save_entity(entity)
+
+        # 監査ログ
+        event_id = self.audit_mgr.record_event(
+            event_type="UPDATE_ENTITY",
+            actor_id=actor_id,
+            target_id=subject_id,
+            payload={"updates": updates},
+            transaction_id=transaction_id,
+        )
+
+        # audit_context 更新
+        self.metadata_mgr.update_audit_context(
+            entity.metadata,
+            transaction_id=transaction_id,
+            event_id=event_id,
+        )
 
         self._save_entity(entity)
 
-        if self.audit_logger:
-            self.audit_logger.log_event(
-                event_type="UPDATE_ENTITY",
-                actor_id=actor_id,
-                target_id=subject_id,
-                payload={"updates": updates},
-            )
-
-        return entity
+        return True
 
     # ------------------------------------------------------------------
-    # Archive
+    # Delete (Logical)
     # ------------------------------------------------------------------
-    def archive_entity(self, subject_id: str, actor_id: str) -> bool:
+    def delete_entity(
+        self,
+        subject_id: str,
+        actor_id: str,
+        transaction_id: str,
+    ) -> bool:
         """
-        Entity を ARCHIVED 状態へ変更（論理削除）。
+        Entity を論理削除（ARCHIVED遷移）。
 
         Args:
             subject_id (str): Entity ID
-            actor_id (str): 実行者 ID
+            actor_id (str): 実行者
+            transaction_id (str): トランザクションID
 
         Returns:
             bool: 成功可否
@@ -233,115 +266,41 @@ class EntityManager:
         if not entity:
             return False
 
-        if self.state_manager:
-            self.state_manager.change_state(subject_id, "ARCHIVED", actor_id)
+        # 状態遷移（直接代入禁止）
+        self.state_mgr.change_state(
+            subject_id=subject_id,
+            new_state="ARCHIVED",
+            actor_id=actor_id,
+            transaction_id=transaction_id,
+        )
 
         entity.state = "ARCHIVED"
+
+        # 永続化
         self._save_entity(entity)
 
-        if self.audit_logger:
-            self.audit_logger.log_event(
-                event_type="ARCHIVE_ENTITY",
-                actor_id=actor_id,
-                target_id=subject_id,
-                payload={},
-            )
+        # 監査ログ
+        event_id = self.audit_mgr.record_event(
+            event_type="DELETE_ENTITY",
+            actor_id=actor_id,
+            target_id=subject_id,
+            payload={"state": "ARCHIVED"},
+            transaction_id=transaction_id,
+        )
+
+        # audit_context 更新
+        self.metadata_mgr.update_audit_context(
+            entity.metadata,
+            transaction_id=transaction_id,
+            event_id=event_id,
+        )
+
+        self._save_entity(entity)
 
         return True
 
     # ------------------------------------------------------------------
-    # List / Search
-    # ------------------------------------------------------------------
-    def list_entities(
-        self,
-        entity_type: Optional[str] = None,
-        state: Optional[str] = None,
-    ) -> List[NWFObject]:
-        """
-        Entity 一覧取得。
-
-        Args:
-            entity_type (Optional[str]): フィルタ Entity Type
-            state (Optional[str]): フィルタ State
-
-        Returns:
-            List[NWFObject]: Entity リスト
-        """
-        result = []
-        for entity in self.registry.values():
-            if entity_type and entity.entity_type != entity_type:
-                continue
-            if state and entity.state != state:
-                continue
-            result.append(entity)
-        return result
-
-    # ------------------------------------------------------------------
-    # Relationship
-    # ------------------------------------------------------------------
-    def link_entities(
-        self,
-        src_id: str,
-        dst_id: str,
-        rel_type: str,
-    ) -> bool:
-        """
-        Entity 間の関係を追加。
-
-        Args:
-            src_id (str): 元 Entity ID
-            dst_id (str): 先 Entity ID
-            rel_type (str): Relationship Type
-
-        Returns:
-            bool: 成功可否
-        """
-        src = self.get_entity(src_id)
-        dst = self.get_entity(dst_id)
-
-        if not src or not dst:
-            return False
-
-        relationship = {
-            "target_id": dst_id,
-            "rel_type": rel_type,
-        }
-
-        src.relationships.append(relationship)
-        self._save_entity(src)
-        return True
-
-    def unlink_entities(
-        self,
-        src_id: str,
-        dst_id: str,
-        rel_type: str,
-    ) -> bool:
-        """
-        Entity 間の関係を削除。
-
-        Args:
-            src_id (str): 元 Entity ID
-            dst_id (str): 先 Entity ID
-            rel_type (str): Relationship Type
-
-        Returns:
-            bool: 成功可否
-        """
-        src = self.get_entity(src_id)
-        if not src:
-            return False
-
-        src.relationships = [
-            r for r in src.relationships
-            if not (r["target_id"] == dst_id and r["rel_type"] == rel_type)
-        ]
-
-        self._save_entity(src)
-        return True
-
-    # ------------------------------------------------------------------
-    # Internal Utilities
+    # Internal
     # ------------------------------------------------------------------
     def _get_entity_path(self, subject_id: str) -> str:
         """
@@ -351,31 +310,22 @@ class EntityManager:
 
     def _save_entity(self, entity: NWFObject) -> None:
         """
-        Entity を JSON として保存。
+        Entity 永続化処理。
+
+        Raises:
+            IOError: 書き込み失敗時
         """
         path = self._get_entity_path(entity.subject_id)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(entity.to_dict(), f, ensure_ascii=False, indent=2)
 
-    def _increment_patch_version(self, version: str) -> str:
-        """
-        Patch Version をインクリメント。
-
-        Args:
-            version (str): 現在バージョン
-
-        Returns:
-            str: 更新後バージョン
-        """
-        parts = version.split(".")
-        if len(parts) != 3:
-            return version
-        parts[2] = str(int(parts[2]) + 1)
-        return ".".join(parts)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(entity.to_dict(), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            # 因果律崩壊防止のため例外は握り潰さない
+            raise IOError(f"Failed to save entity: {entity.subject_id}") from e
 
 
 if __name__ == "__main__":
-    # 簡易テスト用
     manager = EntityManager()
     print("EntityManager initialized.")
 

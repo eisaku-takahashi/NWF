@@ -1,19 +1,20 @@
 """
 Source: src/core/audit_log_manager.py
-Updated: 2026-04-04T22:40:00+09:00
+Updated: 2026-04-07T07:24:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Kernel_Spec/NWF_Kernel_Audit_System_Spec_v2.0.1.md
     - docs/spec/Data_Spec/NWF_Data_Model_v2.0.1.md
     - docs/spec/Execution_Spec/NWF_Execution_Pipeline_v2.0.1.md
-    - src/core/audit_logger.py
+    - docs/spec/Kernel_Spec/NWF_Concurrency_Control_v2.0.1.md
     - src/core/metadata_manager.py
     - src/core/version_manager.py
 Docstring:
     AuditLogManager モジュール。
-    NWF システムにおける全イベントを構造化ログとして記録し、
-    因果関係（Provenance）を保証する高レベル監査管理コンポーネント。
+    NWFシステムにおける全イベントをハッシュチェーン構造で記録する
+    Append-Only 監査ログ管理コンポーネント。
+    因果律（Causality）を物理的に保証する。
 """
 
 # ---------------------------------------------------------
@@ -24,13 +25,12 @@ import json
 import hashlib
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Dict, Any
+from typing import Dict, Any, Optional, List
 
 # ---------------------------------------------------------
 # 定数 / 設定
 # ---------------------------------------------------------
 JST = timezone(timedelta(hours=9))
-
 DEFAULT_LOG_DIR = "logs/audit"
 
 # ---------------------------------------------------------
@@ -52,23 +52,26 @@ def _now_iso() -> str:
 
 def _generate_event_id() -> str:
     """
-    イベントIDを生成（UUIDベース）
+    イベントID生成（UUIDベース）
     """
-    return f"LOG-{uuid.uuid4().hex}"
-
-
-def _generate_transaction_id() -> str:
-    """
-    トランザクションIDを生成
-    """
-    return f"TXN-{uuid.uuid4().hex}"
+    return f"EVT-{uuid.uuid4().hex}"
 
 
 def _compute_hash(data: str) -> str:
     """
-    データのSHA256ハッシュを生成
+    SHA256ハッシュ生成
     """
     return "sha256:" + hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def _serialize_for_hash(entry: Dict[str, Any]) -> str:
+    """
+    ハッシュ計算用シリアライズ
+    integrity_hash を除外して順序固定でJSON化
+    """
+    temp = dict(entry)
+    temp.pop("integrity_hash", None)
+    return json.dumps(temp, sort_keys=True, ensure_ascii=False)
 
 
 # ---------------------------------------------------------
@@ -78,12 +81,12 @@ class AuditLogManager:
     """
     AuditLogManager クラス
 
-    NWFシステムの全イベントをJSONL形式で記録し、
-    トランザクション単位で因果関係を保証する。
+    Append-Only / ハッシュチェーン構造により、
+    監査ログの改ざん耐性と因果律を保証する。
 
     Attributes:
-        log_dir (str): ログ保存ディレクトリ
-        current_transaction (Optional[str]): 現在のトランザクションID
+        log_dir (str): ログディレクトリ
+        last_hash (str): 直前イベントのハッシュ
     """
 
     def __init__(self, log_dir: str = DEFAULT_LOG_DIR):
@@ -94,42 +97,10 @@ class AuditLogManager:
             log_dir (str): ログ保存ディレクトリ
         """
         self.log_dir = log_dir
-        self.current_transaction: Optional[str] = None
-
-        # ディレクトリが存在しない場合は作成
         os.makedirs(self.log_dir, exist_ok=True)
 
-    # -----------------------------------------------------
-    # Transaction Management
-    # -----------------------------------------------------
-    def begin_transaction(self, actor_id: str) -> str:
-        """
-        新規トランザクション開始
-
-        Args:
-            actor_id (str): 操作主体ID
-
-        Returns:
-            str: transaction_id
-
-        Raises:
-            ValueError: actor_id未指定
-        """
-        if not actor_id:
-            raise ValueError("actor_id is required")
-
-        txn_id = _generate_transaction_id()
-        self.current_transaction = txn_id
-
-        # トランザクション開始ログ
-        self.record_event(
-            event_type="TRANSACTION_BEGIN",
-            subject_id=None,
-            actor_id=actor_id,
-            payload={"message": "Transaction started"},
-        )
-
-        return txn_id
+        # 最新ハッシュのロード
+        self.last_hash = self._load_last_hash()
 
     # -----------------------------------------------------
     # Core Logging
@@ -137,197 +108,170 @@ class AuditLogManager:
     def record_event(
         self,
         event_type: str,
-        subject_id: Optional[str],
         actor_id: str,
-        payload: Optional[Dict[str, Any]] = None,
-        status: str = "SUCCESS",
-        spec_id: Optional[str] = None,
-    ) -> None:
+        target_id: str,
+        payload: Dict[str, Any],
+        transaction_id: str,
+    ) -> str:
         """
-        イベントログ記録
+        イベント記録（因果律保証）
 
         Args:
             event_type (str): イベント種別
-            subject_id (str): 対象Entity ID
             actor_id (str): 操作主体
+            target_id (str): 対象ID
             payload (dict): 追加情報
-            status (str): SUCCESS / FAILED
-            spec_id (str): 関連Spec ID
+            transaction_id (str): トランザクションID
+
+        Returns:
+            str: event_id
+
+        Raises:
+            ValueError: 必須パラメータ不足
+            RuntimeError: 書き込み失敗
         """
 
         if not actor_id:
             raise ValueError("actor_id is required")
+        if not target_id:
+            raise ValueError("target_id is required")
+        if not transaction_id:
+            raise ValueError("transaction_id is required")
 
-        if not self.current_transaction:
-            raise RuntimeError("Transaction not started")
-
+        # -------------------------------------------------
+        # 1. イベント構造生成
+        # -------------------------------------------------
         event = {
             "event_id": _generate_event_id(),
             "timestamp": _now_iso(),
-            "transaction_id": self.current_transaction,
+            "transaction_id": transaction_id,
             "actor_id": actor_id,
             "event_type": event_type,
-            "subject_id": subject_id,
-            "spec_id": spec_id,
-            "status": status,
+            "target_id": target_id,
             "payload": payload or {},
+            "prev_hash": self.last_hash,
+            "version": "2.0.1",
         }
 
-        # integrity hash 計算
-        event_str = json.dumps(event, sort_keys=True)
-        event["integrity_hash"] = _compute_hash(event_str)
+        # -------------------------------------------------
+        # 2. ハッシュ計算（因果連鎖）
+        # -------------------------------------------------
+        serialized = _serialize_for_hash(event)
+        current_hash = _compute_hash(serialized)
+        event["integrity_hash"] = current_hash
 
+        # -------------------------------------------------
+        # 3. Append Only 書き込み
+        # -------------------------------------------------
         self._append_log(event)
 
-    def record_error(
-        self,
-        actor_id: str,
-        error_code: str,
-        message: str,
-        stack_trace: Optional[str] = None,
-    ) -> None:
-        """
-        エラーログ記録
+        # -------------------------------------------------
+        # 4. 状態更新
+        # -------------------------------------------------
+        self.last_hash = current_hash
 
-        Args:
-            actor_id (str): 操作主体
-            error_code (str): エラーコード
-            message (str): エラーメッセージ
-            stack_trace (str): スタックトレース
-        """
-        payload = {
-            "error_code": error_code,
-            "message": message,
-            "stack_trace": stack_trace,
-        }
-
-        self.record_event(
-            event_type="ERROR",
-            subject_id=None,
-            actor_id=actor_id,
-            payload=payload,
-            status="FAILED",
-        )
+        return event["event_id"]
 
     # -----------------------------------------------------
     # Retrieval
     # -----------------------------------------------------
-    def get_logs(
-        self,
-        transaction_id: Optional[str] = None,
-        subject_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    def get_logs(self) -> List[Dict[str, Any]]:
         """
-        ログ取得
-
-        Args:
-            transaction_id (str): トランザクションID
-            subject_id (str): Entity ID
+        全ログ取得
 
         Returns:
-            list: ログ一覧
+            List[Dict]: ログ一覧
         """
         logs = []
 
-        for file in os.listdir(self.log_dir):
+        for file in sorted(os.listdir(self.log_dir)):
             path = os.path.join(self.log_dir, file)
+
             with open(path, "r", encoding="utf-8") as f:
                 for line in f:
-                    entry = json.loads(line.strip())
-
-                    if transaction_id and entry["transaction_id"] != transaction_id:
-                        continue
-                    if subject_id and entry["subject_id"] != subject_id:
-                        continue
-
-                    logs.append(entry)
+                    logs.append(json.loads(line.strip()))
 
         return logs
-
-    def get_transaction_trace(self, transaction_id: str) -> List[Dict[str, Any]]:
-        """
-        トランザクション単位のログ取得
-
-        Args:
-            transaction_id (str)
-
-        Returns:
-            list
-        """
-        return self.get_logs(transaction_id=transaction_id)
 
     # -----------------------------------------------------
     # Integrity
     # -----------------------------------------------------
     def verify_integrity(self) -> bool:
         """
-        ログの整合性チェック
+        ハッシュチェーン整合性チェック
 
         Returns:
             bool: Trueなら正常
         """
-        for file in os.listdir(self.log_dir):
+        previous_hash = None
+
+        for file in sorted(os.listdir(self.log_dir)):
             path = os.path.join(self.log_dir, file)
+
             with open(path, "r", encoding="utf-8") as f:
                 for line in f:
                     entry = json.loads(line.strip())
 
-                    original_hash = entry.get("integrity_hash")
-                    temp = dict(entry)
-                    temp.pop("integrity_hash", None)
-
-                    recalculated = _compute_hash(
-                        json.dumps(temp, sort_keys=True)
-                    )
-
-                    if original_hash != recalculated:
+                    # prev_hash の一致確認
+                    if entry.get("prev_hash") != previous_hash:
                         return False
 
+                    # ハッシュ再計算
+                    serialized = _serialize_for_hash(entry)
+                    recalculated = _compute_hash(serialized)
+
+                    if entry.get("integrity_hash") != recalculated:
+                        return False
+
+                    previous_hash = entry.get("integrity_hash")
+
         return True
-
-    # -----------------------------------------------------
-    # Export
-    # -----------------------------------------------------
-    def export_logs(self, format: str = "json") -> str:
-        """
-        ログエクスポート
-
-        Args:
-            format (str): json / md
-
-        Returns:
-            str: 出力文字列
-        """
-        logs = self.get_logs()
-
-        if format == "json":
-            return json.dumps(logs, indent=2, ensure_ascii=False)
-
-        elif format == "md":
-            lines = ["# Audit Log Export\n"]
-            for log in logs:
-                lines.append(f"- {log['timestamp']} | {log['event_type']} | {log['status']}")
-            return "\n".join(lines)
-
-        else:
-            raise ValueError("Unsupported format")
 
     # -----------------------------------------------------
     # Internal
     # -----------------------------------------------------
     def _append_log(self, event: Dict[str, Any]) -> None:
         """
-        ログ追記（Append Only）
+        Append Only 書き込み
 
         Args:
             event (dict)
-        """
-        date_str = datetime.now(JST).strftime("%Y-%m-%d")
-        file_path = os.path.join(self.log_dir, f"{date_str}.jsonl")
 
-        # Append Only で書き込み
-        with open(file_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        Raises:
+            RuntimeError: 書き込み失敗
+        """
+        date_str = datetime.now(JST).strftime("%Y%m%d")
+        file_path = os.path.join(self.log_dir, f"audit_{date_str}.jsonl")
+
+        try:
+            with open(file_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception as e:
+            # 因果律崩壊防止：ログ書き込み失敗は致命的エラー
+            raise RuntimeError(f"Audit log write failed: {e}")
+
+    def _load_last_hash(self) -> Optional[str]:
+        """
+        最新ハッシュ取得
+
+        Returns:
+            str | None
+        """
+        files = sorted(os.listdir(self.log_dir))
+        if not files:
+            return None
+
+        last_file = os.path.join(self.log_dir, files[-1])
+
+        try:
+            with open(last_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                if not lines:
+                    return None
+                last_entry = json.loads(lines[-1].strip())
+                return last_entry.get("integrity_hash")
+        except Exception:
+            return None
 
 
 # ---------------------------------------------------------
@@ -336,15 +280,16 @@ class AuditLogManager:
 if __name__ == "__main__":
     manager = AuditLogManager()
 
-    txn = manager.begin_transaction(actor_id="USR-TEST")
+    txn_id = f"TXN-{uuid.uuid4().hex}"
 
     manager.record_event(
         event_type="TEST_EVENT",
-        subject_id="TEST-001",
         actor_id="USR-TEST",
+        target_id="TEST-001",
         payload={"message": "test"},
+        transaction_id=txn_id,
     )
 
-    print(manager.get_transaction_trace(txn))
+    print(manager.verify_integrity())
 
 # [EOF]

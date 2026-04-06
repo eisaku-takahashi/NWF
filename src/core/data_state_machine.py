@@ -1,29 +1,24 @@
 """
 Source: src/core/data_state_machine.py
-Updated: 2026-04-02T21:44:00+09:00
+Updated: 2026-04-07T05:10:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
-    - docs/spec/Core_Spec/NWF_Object.md
-    - docs/spec/Core_Spec/Event_Manager.md
-    - docs/spec/Core_Spec/Audit_System.md
-    - docs/spec/Data_Spec/Data_State_Model.md
-    - docs/spec/Engine_Spec/Workflow_Engine.md
+    - docs/spec/Core_Spec/NWF_State_Transition_Model_v2.0.1.md
+    - docs/spec/Data_Spec/NWF_StateData_v2.0.1.md
+    - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
 Docstring:
     Data State Machine モジュール。
-    NWF システムにおけるすべてのデータ状態遷移を統治する中核コンポーネント。
-    NWFObject の status を変更できる唯一のモジュールとして、
-    状態遷移ルールの検証、権限チェック、イベント発行を行う。
+    NWF システムにおける状態遷移の正典（Single Source of Truth）を提供する。
+
+    本モジュールは純粋な遷移判定ロジックのみを担当し、
+    データ更新・ログ記録・永続化は一切行わない。
+
+    因果律（Causality）を保証するため、
+    定義された状態遷移以外はすべて例外として扱う。
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
-
-# ============================================================
-# Time Policy (JST)
-# ============================================================
-
-JST = timezone(timedelta(hours=9))
+from typing import Dict, List
 
 # ============================================================
 # Constants / State Definitions
@@ -35,7 +30,7 @@ STATE_APPROVED = "APPROVED"
 STATE_RELEASED = "RELEASED"
 STATE_ARCHIVED = "ARCHIVED"
 
-ALL_STATES = [
+ALL_STATES: List[str] = [
     STATE_DRAFT,
     STATE_REVIEW,
     STATE_APPROVED,
@@ -43,11 +38,17 @@ ALL_STATES = [
     STATE_ARCHIVED,
 ]
 
-# 許可された状態遷移
-ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
-    STATE_DRAFT: [STATE_REVIEW],
-    STATE_REVIEW: [STATE_DRAFT, STATE_APPROVED],
-    STATE_APPROVED: [STATE_RELEASED],
+# ============================================================
+# 正典状態遷移テーブル
+# ============================================================
+
+# なぜこの構造か：
+# 状態遷移の唯一の正解をここに集中させることで、
+# DataStateManager / EntityManager の分岐ロジックの不整合を防ぐため
+TRANSITIONS: Dict[str, List[str]] = {
+    STATE_DRAFT: [STATE_REVIEW, STATE_ARCHIVED],
+    STATE_REVIEW: [STATE_APPROVED, STATE_DRAFT, STATE_ARCHIVED],
+    STATE_APPROVED: [STATE_RELEASED, STATE_DRAFT, STATE_ARCHIVED],
     STATE_RELEASED: [STATE_ARCHIVED],
     STATE_ARCHIVED: [],
 }
@@ -58,28 +59,26 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
 
 __all__ = [
     "DataStateMachine",
-    "NWFStateTransitionError",
+    "InvalidStateTransitionError",
+    "ALL_STATES",
 ]
 
 # ============================================================
 # Exceptions
 # ============================================================
 
-class NWFStateTransitionError(Exception):
+class InvalidStateTransitionError(Exception):
     """
-    状態遷移ルール違反例外
-    """
-    pass
+    状態遷移違反例外
 
-# ============================================================
-# Utility Functions
-# ============================================================
+    なぜ必要か：
+    不正な状態遷移は因果律の破壊に直結するため、
+    即時例外として検出し、上位レイヤーに通知する。
+    """
+    def __init__(self, current_state: str, next_state: str):
+        message = f"Invalid state transition: {current_state} -> {next_state}"
+        super().__init__(message)
 
-def now_jst_iso() -> str:
-    """
-    JST の現在時刻を ISO8601 形式で取得
-    """
-    return datetime.now(JST).isoformat()
 
 # ============================================================
 # Data State Machine
@@ -87,203 +86,76 @@ def now_jst_iso() -> str:
 
 class DataStateMachine:
     """
-    Data State Machine
+    DataStateMachine（状態遷移判定専用クラス）
 
-    NWFObject の状態遷移を管理する。
-    状態遷移の検証、権限チェック、イベント発行を行う。
+    責務:
+        - 状態遷移の妥当性チェックのみを行う
+        - データ更新・ログ記録は行わない
 
-    Args:
-        event_manager: EventManager インスタンス
-
-    Methods:
-        transition_to
-        validate_transition
-        check_authority
-        execute_transition
+    Notes:
+        本クラスは「状態遷移の熱力学法則」を担う。
+        一度 ARCHIVED に入ったエンティティは復元できない。
     """
 
-    def __init__(self, event_manager):
-        """
-        初期化
-
-        Args:
-            event_manager: EventManager
-        """
-        self.event_manager = event_manager
-        self.transitions = ALLOWED_TRANSITIONS
-
-    # --------------------------------------------------------
-    # Main Transition Method
-    # --------------------------------------------------------
-
-    def transition_to(self, obj, next_state: str, actor: str, context: Optional[Dict[str, Any]] = None):
-        """
-        状態遷移メイン処理
-
-        Args:
-            obj: NWFObject
-            next_state: 遷移先状態
-            actor: 実行者ID
-            context: 追加情報
-
-        Returns:
-            更新された NWFObject
-
-        Raises:
-            NWFStateTransitionError
-        """
-
-        old_state = obj.status
-
-        # イベント: 遷移開始
-        self._emit_event(
-            "STATE_TRANSITION_START",
-            obj,
-            old_state,
-            next_state,
-            actor,
-            context
-        )
-
-        # 遷移検証
-        self.validate_transition(old_state, next_state)
-
-        # 権限チェック
-        self.check_authority(actor, next_state)
-
-        # 遷移実行
-        new_obj = self.execute_transition(obj, next_state, actor)
-
-        # イベント: 遷移成功
-        self._emit_event(
-            "STATE_CHANGED",
-            new_obj,
-            old_state,
-            next_state,
-            actor,
-            context
-        )
-
-        return new_obj
+    _TRANSITIONS = TRANSITIONS
 
     # --------------------------------------------------------
     # Validation
     # --------------------------------------------------------
 
-    def validate_transition(self, current_state: str, next_state: str):
+    @classmethod
+    def validate_transition(cls, current_state: str, next_state: str) -> bool:
         """
-        状態遷移が許可されているか確認
+        状態遷移の妥当性を検証する
 
         Args:
-            current_state: 現在状態
-            next_state: 次状態
-
-        Raises:
-            NWFStateTransitionError
-        """
-
-        if current_state not in self.transitions:
-            raise NWFStateTransitionError(f"Unknown state: {current_state}")
-
-        allowed = self.transitions[current_state]
-
-        if next_state not in allowed:
-            raise NWFStateTransitionError(
-                f"Invalid transition: {current_state} -> {next_state}"
-            )
-
-    # --------------------------------------------------------
-    # Authority Check
-    # --------------------------------------------------------
-
-    def check_authority(self, actor: str, next_state: str):
-        """
-        権限チェック
-
-        Args:
-            actor: 実行者ID
-            next_state: 遷移先状態
-
-        Notes:
-            現在は簡易チェック
-            将来的には Role / Permission System と連携
-        """
-
-        # APPROVED は特別権限が必要
-        if next_state == STATE_APPROVED:
-            if actor is None or actor == "":
-                raise NWFStateTransitionError("Approval requires actor")
-
-    # --------------------------------------------------------
-    # Execute Transition
-    # --------------------------------------------------------
-
-    def execute_transition(self, obj, next_state: str, actor: str):
-        """
-        状態遷移実行
-
-        NWFObject は不変オブジェクトとして扱い、
-        新しいインスタンスを生成して返す。
-
-        Args:
-            obj: NWFObject
-            next_state: 次状態
-            actor: 実行者
+            current_state (str): 現在状態
+            next_state (str): 遷移先状態
 
         Returns:
-            新しい NWFObject
+            bool: 遷移可能な場合 True
+
+        Raises:
+            InvalidStateTransitionError: 不正な遷移の場合
         """
 
-        # 新しいオブジェクトをクローン
-        new_obj = obj.clone()
+        # 状態の存在チェック
+        if current_state not in cls._TRANSITIONS:
+            raise InvalidStateTransitionError(current_state, next_state)
 
-        new_obj.status = next_state
-        new_obj.updated_at = now_jst_iso()
+        # 許可された遷移リスト取得
+        allowed_states = cls._TRANSITIONS[current_state]
 
-        # 承認時の情報記録
-        if next_state == STATE_APPROVED:
-            new_obj.approved_by = actor
-            new_obj.approved_at = now_jst_iso()
+        # 遷移可能か判定
+        if next_state not in allowed_states:
+            raise InvalidStateTransitionError(current_state, next_state)
 
-        return new_obj
+        return True
 
     # --------------------------------------------------------
-    # Event Emission
+    # Helper
     # --------------------------------------------------------
 
-    def _emit_event(
-        self,
-        event_type: str,
-        obj,
-        old_state: str,
-        new_state: str,
-        actor: str,
-        context: Optional[Dict[str, Any]]
-    ):
+    @classmethod
+    def get_allowed_transitions(cls, current_state: str) -> List[str]:
         """
-        EventManager へイベント送信
+        指定状態から遷移可能な状態一覧を取得
+
+        Args:
+            current_state (str): 現在状態
+
+        Returns:
+            List[str]: 遷移可能状態一覧
         """
 
-        event_payload = {
-            "event_type": event_type,
-            "object_id": obj.id,
-            "old_state": old_state,
-            "new_state": new_state,
-            "actor": actor,
-            "timestamp": now_jst_iso(),
-            "context": context or {},
-        }
-
-        if self.event_manager:
-            self.event_manager.emit(event_payload)
-
+        return cls._TRANSITIONS.get(current_state, [])
 
 # ============================================================
 # Main Guard
 # ============================================================
 
 if __name__ == "__main__":
-    print("DataStateMachine module")
-
+    # 簡易テスト
+    print(DataStateMachine.validate_transition("DRAFT", "REVIEW"))
 
 # [EOF]

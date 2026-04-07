@@ -171,7 +171,11 @@ class DataStateManager:
         # 5. Version管理（論理確定ポイントのみ）
         # ----------------------------------------------------
         if next_state in [STATE_REVIEW, STATE_APPROVED]:
-            updated_entity = self.version_manager.increment_version(updated_entity)
+            # ★ Hotfix適用（transaction_id伝播）
+            updated_entity = self.version_manager.increment_version(
+                updated_entity,
+                transaction_id=transaction_id
+            )
 
         # ----------------------------------------------------
         # 6. 監査ログ記録（最終確定）

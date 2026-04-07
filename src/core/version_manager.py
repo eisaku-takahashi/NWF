@@ -1,26 +1,31 @@
 """
 Source: src/core/version_manager.py
-Updated: 2026-04-04T20:54:00+09:00
+Updated: 2026-04-07T22:55:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Core_Spec/NWF_Data_Model_v2.0.1.md
-    - docs/spec/Core_Spec/NWF_State_Transition_Model_v2.0.1.md
+    - docs/spec/Core_Spec/NWF_Entity_ID_System_v2.0.1.md
     - docs/spec/Execution_Spec/NWF_Validation_System_v2.0.1.md
     - docs/spec/Kernel_Spec/NWF_Kernel_Audit_System_Spec_v2.0.1.md
 Docstring:
     Version Manager モジュール。
-    NWF システムにおける Entity のバージョン管理（スナップショット生成・履歴管理・ロールバック）を担う。
+    NWF システムにおいて Entity のバージョン管理を担い、
+    version(int) の増分・スナップショット生成・整合性検証を行う。
+    すべての変更は transaction_id に紐付けられ、監査可能性を保証する。
 """
 
 import os
 import json
 import hashlib
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 
 # JST タイムゾーン定義
 JST = timezone(timedelta(hours=9))
+
+# 定数
+DEFAULT_BASE_DIR = "data/state/versions"
 
 __all__ = [
     "VersionManager"
@@ -30,21 +35,27 @@ __all__ = [
 # Utility Functions
 
 def _now_iso() -> str:
-    """現在時刻を ISO8601 (JST) で返す"""
+    """
+    現在時刻を ISO8601 (JST) 形式で取得する
+
+    Returns:
+        str: JST の現在時刻
+    """
     return datetime.now(JST).isoformat()
 
 
 def _calculate_hash(data: Dict[str, Any]) -> str:
-    """データの整合性チェック用ハッシュを生成する"""
-    json_str = json.dumps(data, sort_keys=True).encode("utf-8")
+    """
+    データの整合性検証用 SHA-256 ハッシュを生成する
+
+    Args:
+        data (Dict[str, Any]): ハッシュ対象データ
+
+    Returns:
+        str: ハッシュ値
+    """
+    json_str = json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return "sha256:" + hashlib.sha256(json_str).hexdigest()
-
-
-def _increment_patch(version: str) -> str:
-    """SemVer の Patch をインクリメント"""
-    major, minor, patch = map(int, version.split("."))
-    patch += 1
-    return f"{major}.{minor}.{patch}"
 
 
 # Classes
@@ -54,189 +65,151 @@ class VersionManager:
     Entity のバージョン管理を行うクラス
 
     主な責務:
-    - スナップショット作成
-    - バージョン履歴管理
-    - ロールバック処理
-    - 差分検出
+    - version(int) の増分管理
+    - スナップショット保存
+    - ハッシュによる整合性検証
+    - transaction_id による因果関係の固定
     """
 
-    def __init__(self, base_dir: str = "data/state/versions"):
+    def __init__(self, base_dir: str = DEFAULT_BASE_DIR):
         """
         Args:
-            base_dir (str): バージョン保存ディレクトリ
+            base_dir (str): スナップショット保存ディレクトリ
         """
         self.base_dir = base_dir
-
-        # ディレクトリが存在しない場合は作成
         os.makedirs(self.base_dir, exist_ok=True)
 
-    def _get_entity_dir(self, entity_id: str) -> str:
-        """Entity ごとの保存ディレクトリ取得"""
-        path = os.path.join(self.base_dir, entity_id)
+    # Internal Utility
+
+    def _get_entity_dir(self, subject_id: str) -> str:
+        """
+        Entity ごとの保存ディレクトリ取得
+
+        Args:
+            subject_id (str): Entity ID
+
+        Returns:
+            str: ディレクトリパス
+        """
+        path = os.path.join(self.base_dir, subject_id)
         os.makedirs(path, exist_ok=True)
         return path
 
-    def create_snapshot(
-        self,
-        entity: Dict[str, Any],
-        actor_id: str,
-        change_summary: str = "update"
-    ) -> Dict[str, Any]:
+    def _create_snapshot(self, entity: Dict[str, Any], transaction_id: str) -> Dict[str, Any]:
         """
-        スナップショットを作成する
+        スナップショットを生成・保存する（内部処理）
 
         Args:
-            entity (Dict): 対象 Entity
-            actor_id (str): 操作者 ID
-            change_summary (str): 変更概要
+            entity (Dict[str, Any]): 対象 Entity
+            transaction_id (str): トランザクションID
 
         Returns:
-            Dict: バージョン情報
+            Dict[str, Any]: スナップショット情報
         """
 
-        entity_id = entity["subject_id"]
-        current_version = entity.get("version", "1.0.0")
+        # 必須フィールド確認
+        subject_id = entity.get("subject_id")
+        version = entity.get("version")
 
-        # Patch インクリメント
-        new_version = _increment_patch(current_version)
+        if not subject_id or version is None:
+            raise ValueError("subject_id and version are required for snapshot")
 
-        # スナップショットデータ
-        snapshot_data = {
-            "entity": entity,
-            "version": new_version,
-            "timestamp": _now_iso()
+        # スナップショット対象データ（state は含めない：不変性保証）
+        snapshot_payload = {
+            "attributes": entity.get("attributes", {}),
+            "relationships": entity.get("relationships", {})
         }
-
-        # 保存パス
-        entity_dir = self._get_entity_dir(entity_id)
-        file_path = os.path.join(entity_dir, f"{new_version}.json")
-
-        # JSON 保存（Atomicを意識し簡易実装）
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(snapshot_data, f, ensure_ascii=False, indent=2)
 
         # ハッシュ生成
-        integrity_hash = _calculate_hash(snapshot_data)
+        integrity_hash = _calculate_hash(snapshot_payload)
 
-        # バージョンメタ情報
-        version_info = {
-            "version_id": new_version,
-            "subject_id": entity_id,
-            "parent_version_id": current_version,
-            "timestamp": _now_iso(),
-            "actor_id": actor_id,
-            "change_summary": change_summary,
-            "snapshot_path": file_path,
-            "integrity_hash": integrity_hash
+        snapshot = {
+            "subject_id": subject_id,
+            "version": version,
+            "transaction_id": transaction_id,
+            "hash": integrity_hash,
+            "snapshot_data": snapshot_payload,
+            "created_at": _now_iso()
         }
 
-        return version_info
+        # 保存
+        entity_dir = self._get_entity_dir(subject_id)
+        file_path = os.path.join(entity_dir, f"{version}.json")
 
-    def get_version_history(self, entity_id: str) -> List[str]:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, ensure_ascii=False, indent=2)
+
+        return snapshot
+
+    # Public Methods
+
+    def increment_version(self, entity: Dict[str, Any], transaction_id: str) -> Dict[str, Any]:
         """
-        バージョン履歴を取得
+        Entity の version を +1 し、スナップショットを生成する
 
         Args:
-            entity_id (str): Entity ID
+            entity (Dict[str, Any]): 対象 Entity
+            transaction_id (str): トランザクションID
 
         Returns:
-            List[str]: バージョン一覧
+            Dict[str, Any]: 更新後 Entity
+
+        Raises:
+            ValueError: transaction_id が未指定の場合
         """
 
-        entity_dir = self._get_entity_dir(entity_id)
+        # transaction_id 必須チェック
+        if not transaction_id:
+            raise ValueError("transaction_id is required")
 
-        versions = []
-        for file in os.listdir(entity_dir):
-            if file.endswith(".json"):
-                versions.append(file.replace(".json", ""))
+        # version は int のみ許可
+        current_version = int(entity.get("version", 0))
+        next_version = current_version + 1
 
-        # ソート（簡易）
-        return sorted(versions)
+        # version 更新（state は絶対に変更しない）
+        entity["version"] = next_version
 
-    def rollback_to(self, entity_id: str, version_id: str) -> Optional[Dict[str, Any]]:
-        """
-        指定バージョンへロールバック
-
-        Args:
-            entity_id (str): Entity ID
-            version_id (str): 対象バージョン
-
-        Returns:
-            Optional[Dict]: Entity データ
-        """
-
-        entity_dir = self._get_entity_dir(entity_id)
-        file_path = os.path.join(entity_dir, f"{version_id}.json")
-
-        if not os.path.exists(file_path):
-            return None
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # DRAFT として再展開する前提
-        entity = data.get("entity")
-        if entity:
-            entity["state"] = "DRAFT"
+        # スナップショット生成
+        self._create_snapshot(entity, transaction_id)
 
         return entity
 
-    def diff_versions(
-        self,
-        entity_id: str,
-        v1: str,
-        v2: str
-    ) -> Dict[str, Any]:
+    def verify_integrity(self, entity: Dict[str, Any]) -> bool:
         """
-        2バージョン間の差分を取得
+        最新スナップショットとの整合性を検証する
 
         Args:
-            entity_id (str): Entity ID
-            v1 (str): version1
-            v2 (str): version2
+            entity (Dict[str, Any]): 対象 Entity
 
         Returns:
-            Dict: 差分
+            bool: 整合性 OK = True
         """
 
-        def load(version):
-            path = os.path.join(self._get_entity_dir(entity_id), f"{version}.json")
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)["entity"]
+        subject_id = entity.get("subject_id")
+        version = entity.get("version")
 
-        data1 = load(v1)
-        data2 = load(v2)
+        if not subject_id or version is None:
+            return False
 
-        diff = {}
+        entity_dir = self._get_entity_dir(subject_id)
+        file_path = os.path.join(entity_dir, f"{version}.json")
 
-        # 簡易差分（キー単位）
-        keys = set(data1.keys()) | set(data2.keys())
-        for k in keys:
-            if data1.get(k) != data2.get(k):
-                diff[k] = {
-                    "from": data1.get(k),
-                    "to": data2.get(k)
-                }
+        if not os.path.exists(file_path):
+            return False
 
-        return diff
+        with open(file_path, "r", encoding="utf-8") as f:
+            snapshot = json.load(f)
 
-    def freeze_version(self, entity: Dict[str, Any]) -> bool:
-        """
-        バージョンを FROZEN 状態にする
+        expected_hash = snapshot.get("hash")
 
-        Args:
-            entity (Dict): Entity
+        current_payload = {
+            "attributes": entity.get("attributes", {}),
+            "relationships": entity.get("relationships", {})
+        }
 
-        Returns:
-            bool: 成功可否
-        """
+        current_hash = _calculate_hash(current_payload)
 
-        # 状態変更（DataStateManager に委譲するのが理想だが簡易実装）
-        if entity.get("state") == "APPROVED":
-            entity["state"] = "FROZEN"
-            return True
-
-        return False
+        return expected_hash == current_hash
 
 
 # Main Guard
@@ -245,14 +218,17 @@ if __name__ == "__main__":
     # 簡易テスト
     vm = VersionManager()
 
-    sample_entity = {
+    test_entity = {
         "subject_id": "CHR-TEST",
-        "version": "1.0.0",
+        "entity_type": "CHARACTER",
         "state": "DRAFT",
-        "content": {"name": "test"}
+        "attributes": {"name": "test"},
+        "relationships": {},
+        "metadata": {},
+        "version": 1
     }
 
-    info = vm.create_snapshot(sample_entity, actor_id="AI-TEST")
-    print(info)
+    updated = vm.increment_version(test_entity, transaction_id="TX-TEST-001")
+    print(updated)
 
 # [EOF]

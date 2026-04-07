@@ -1,6 +1,6 @@
 """
 Source: src/core/entity_manager.py
-Updated: 2026-04-07T22:20:00+09:00
+Updated: 2026-04-08T02:19:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
@@ -12,9 +12,6 @@ Dependencies:
     - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
 Docstring:
     Entity Manager モジュール。
-
-    Entity の生成・取得・更新・論理削除を統制し、
-    物理（File）・論理（State）・時間（Audit）を transaction_id で統合する。
 """
 
 import json
@@ -29,30 +26,12 @@ from src.core.data_state_machine import DataStateMachine
 from src.core.version_manager import VersionManager
 from src.core.audit_log_manager import AuditLogManager
 
-# ============================================================
-# Constants
-# ============================================================
-
 DEFAULT_ENTITY_DIR = "data/state/entities"
 
-# ============================================================
-# Public Interface
-# ============================================================
+__all__ = ["EntityManager"]
 
-__all__ = [
-    "EntityManager",
-]
-
-# ============================================================
-# Entity Manager
-# ============================================================
 
 class EntityManager:
-    """
-    EntityManager クラス。
-
-    Entity のライフサイクル管理と因果律同期を担う。
-    """
 
     def __init__(
         self,
@@ -63,10 +42,6 @@ class EntityManager:
         version_manager: Optional[VersionManager] = None,
         audit_log_manager: Optional[AuditLogManager] = None,
     ):
-        """
-        初期化処理。
-        """
-
         self.entity_dir = entity_dir
         self.registry: Dict[str, NWFObject] = {}
 
@@ -75,7 +50,6 @@ class EntityManager:
         self.version_mgr = version_manager or VersionManager()
         self.audit_mgr = audit_log_manager or AuditLogManager()
 
-        # Hotfix: DataStateMachine 実インスタンスを必ず渡す
         self.state_mgr = state_manager or DataStateManager(
             state_machine=DataStateMachine(),
             metadata_manager=self.metadata_mgr,
@@ -84,10 +58,6 @@ class EntityManager:
         )
 
         os.makedirs(self.entity_dir, exist_ok=True)
-
-    # ========================================================
-    # Create
-    # ========================================================
 
     def create_entity(
         self,
@@ -135,12 +105,7 @@ class EntityManager:
         )
 
         self._save_entity(entity)
-
         return entity
-
-    # ========================================================
-    # Read
-    # ========================================================
 
     def get_entity(self, subject_id: str) -> Optional[NWFObject]:
 
@@ -157,10 +122,6 @@ class EntityManager:
         entity = NWFObject.from_dict(data)
         self.registry[subject_id] = entity
         return entity
-
-    # ========================================================
-    # Update
-    # ========================================================
 
     def update_entity(
         self,
@@ -187,7 +148,11 @@ class EntityManager:
 
         entity_dict["attributes"].update(updates)
 
-        entity_dict = self.version_mgr.increment_version(entity_dict)
+        # ★ Hotfix適用（transaction_id伝播）
+        entity_dict = self.version_mgr.increment_version(
+            entity_dict,
+            transaction_id=transaction_id
+        )
 
         updated_entity = NWFObject.from_dict(entity_dict)
         self._save_entity(updated_entity)
@@ -211,10 +176,6 @@ class EntityManager:
 
         return True
 
-    # ========================================================
-    # Delete (Logical)
-    # ========================================================
-
     def delete_entity(
         self,
         subject_id: str,
@@ -231,7 +192,6 @@ class EntityManager:
 
         entity_dict = entity.to_dict()
 
-        # Hotfix: next_state に修正
         updated_dict = self.state_mgr.change_state(
             entity=entity_dict,
             next_state="ARCHIVED",
@@ -240,7 +200,6 @@ class EntityManager:
         )
 
         updated_entity = NWFObject.from_dict(updated_dict)
-
         self._save_entity(updated_entity)
 
         event_id = self.audit_mgr.record_event(
@@ -262,27 +221,15 @@ class EntityManager:
 
         return True
 
-    # ========================================================
-    # Internal
-    # ========================================================
-
     def _get_entity_path(self, subject_id: str) -> str:
         return os.path.join(self.entity_dir, f"{subject_id}.json")
 
     def _save_entity(self, entity: NWFObject) -> None:
-        try:
-            with open(self._get_entity_path(entity.subject_id), "w", encoding="utf-8") as f:
-                json.dump(entity.to_dict(), f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            raise IOError(f"Failed to save entity: {entity.subject_id}") from e
+        with open(self._get_entity_path(entity.subject_id), "w", encoding="utf-8") as f:
+            json.dump(entity.to_dict(), f, ensure_ascii=False, indent=2)
 
-
-# ============================================================
-# Main Guard
-# ============================================================
 
 if __name__ == "__main__":
     print("EntityManager ready.")
-
 
 # [EOF]

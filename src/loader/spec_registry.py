@@ -1,36 +1,32 @@
 """
 Source: src/loader/spec_registry.py
-Updated: 2026-04-03T09:09:00+09:00
+Updated: 2026-04-09T01:24:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
-    - docs/spec/System_Architecture/Spec_Loader_System.md
-    - docs/spec/Data_Spec/Spec_Data_Model.md
-    - docs/spec/Core_Spec/Audit_System.md
+    - docs/spec/Core_Spec/NWF_Entity_ID_System_v2.0.1.md
+    - docs/spec/Kernel_Spec/NWF_Kernel_Audit_System_Spec_v2.0.1.md
+    - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
+    - docs/spec/Data_Spec/NWF_Data_Spec_Index_v2.0.1.md
 Docstring:
-    Spec Registry モジュール。
-    DependencyResolver によって解決された SpecDocument を登録し、
-    ID・Category・Status などのインデックスを構築する。
-    Execution Engine、AI Interface、Workflow Engine からの
-    ランタイム Spec 参照を提供する知識管理レイヤー。
+    Spec Registry モジュール（再構築版）。
+
+    検証済み Spec を subject_id をキーとして保持する
+    不変（Immutable）な Spec Index を構築する。
+
+    SpecLoader と連携し、
+    transaction_id による因果律を保持しながら登録される。
+
+    一度 lock() されると、すべての書き込み操作は禁止される。
 """
 
 # ============================================================
 # Imports
 # ============================================================
 
-from typing import Dict, List, Optional, Set
-from dataclasses import dataclass, field
+from typing import Dict, Optional, Any
 from threading import RLock
-
-# ============================================================
-# Constants / Settings
-# ============================================================
-
-EVENT_SPEC_REGISTERED = "SPEC_REGISTERED"
-EVENT_SPEC_UNREGISTERED = "SPEC_UNREGISTERED"
-EVENT_REGISTRY_CLEARED = "REGISTRY_CLEARED"
-EVENT_REGISTRY_READY = "REGISTRY_READY"
+import copy
 
 # ============================================================
 # Public Interface
@@ -38,6 +34,7 @@ EVENT_REGISTRY_READY = "REGISTRY_READY"
 
 __all__ = [
     "SpecRegistry",
+    "RegistryLockedError",
     "DuplicateSpecError",
     "SpecNotFoundError",
 ]
@@ -46,8 +43,13 @@ __all__ = [
 # Exceptions
 # ============================================================
 
+class RegistryLockedError(Exception):
+    """レジストリロック状態での更新操作エラー"""
+    pass
+
+
 class DuplicateSpecError(Exception):
-    """重複 Spec ID エラー"""
+    """重複登録エラー"""
     pass
 
 
@@ -57,173 +59,145 @@ class SpecNotFoundError(Exception):
 
 
 # ============================================================
-# Data Structures
-# ============================================================
-
-@dataclass
-class RegistryIndexes:
-    """
-    レジストリインデックス構造
-    """
-    category_index: Dict[str, Set[str]] = field(default_factory=dict)
-    status_index: Dict[str, Set[str]] = field(default_factory=dict)
-    reverse_dependency_index: Dict[str, Set[str]] = field(default_factory=dict)
-
-
-# ============================================================
 # Classes
 # ============================================================
 
 class SpecRegistry:
     """
-    Spec Registry
+    Spec Registry（不変インデックス）
 
-    SpecDocument を登録し、ID・カテゴリ・ステータス・依存関係の
-    インデックスを構築して高速検索を可能にする。
+    特徴:
+        - subject_id を主キーとする
+        - transaction_id による因果律保持
+        - lock() 後は完全不変
+        - スレッド安全（RLock）
     """
 
     def __init__(self):
         """初期化"""
-        self._specs: Dict[str, object] = {}
-        self._indexes = RegistryIndexes()
+        self._storage: Dict[str, Dict[str, Any]] = {}
+        self._transaction_map: Dict[str, str] = {}
+        self._lock_flag: bool = False
         self._lock = RLock()
 
     # --------------------------------------------------------
     # Registry Management
     # --------------------------------------------------------
 
-    def register(self, spec_doc: object):
+    def register(self, spec: Dict[str, Any], transaction_id: str) -> None:
         """
-        SpecDocument を登録
+        Spec 登録
 
         Args:
-            spec_doc (SpecDocument): 登録対象 SpecDocument
+            spec (Dict[str, Any]): Spec（metadata 含む）
+            transaction_id (str): トランザクションID
+
+        Raises:
+            RegistryLockedError: ロック後の書き込み
+            DuplicateSpecError: 重複登録
+            ValueError: 必須フィールド欠落
         """
         with self._lock:
-            spec_id = spec_doc.metadata.id
 
-            if spec_id in self._specs:
-                raise DuplicateSpecError(f"Spec already registered: {spec_id}")
+            # ロック状態チェック
+            if self._lock_flag:
+                raise RegistryLockedError("Registry is locked")
 
-            self._specs[spec_id] = spec_doc
-            self._update_indexes(spec_doc)
+            # 必須フィールド検証（D7準拠）
+            subject_id = spec.get("subject_id")
+            if not subject_id:
+                raise ValueError("subject_id is required")
 
-    def unregister(self, spec_id: str):
+            # Anti-Zombie（versionチェック）
+            version = spec.get("version")
+            if version != "v2.0.1":
+                raise ValueError(f"Invalid version: {version}")
+
+            # 重複チェック
+            if subject_id in self._storage:
+                raise DuplicateSpecError(subject_id)
+
+            # 登録
+            self._storage[subject_id] = spec
+
+            # 因果律リンク
+            self._transaction_map[subject_id] = transaction_id
+
+    def lock(self) -> None:
         """
-        Spec 登録解除
+        レジストリをロック（不可逆）
 
-        Args:
-            spec_id (str): Spec ID
+        一度ロックすると解除不可。
         """
         with self._lock:
-            if spec_id not in self._specs:
-                raise SpecNotFoundError(spec_id)
-
-            spec_doc = self._specs.pop(spec_id)
-            self._remove_from_indexes(spec_doc)
-
-    def clear(self):
-        """
-        レジストリ初期化
-        """
-        with self._lock:
-            self._specs.clear()
-            self._indexes = RegistryIndexes()
+            self._lock_flag = True
 
     # --------------------------------------------------------
     # Lookup Methods
     # --------------------------------------------------------
 
-    def get_by_id(self, spec_id: str) -> Optional[object]:
+    def get_spec(self, subject_id: str) -> Optional[Dict[str, Any]]:
         """
-        ID で Spec 取得
+        Spec 取得
 
         Args:
-            spec_id (str): Spec ID
+            subject_id (str): 主キー
 
         Returns:
-            SpecDocument or None
+            Optional[Dict[str, Any]]: Spec（コピー）
         """
-        return self._specs.get(spec_id)
+        spec = self._storage.get(subject_id)
+        if spec is None:
+            return None
 
-    def get_all(self) -> List[object]:
-        """
-        全 Spec 取得
-        """
-        return list(self._specs.values())
+        # 不変性確保のためコピー返却
+        return copy.deepcopy(spec)
 
-    def find_by_category(self, category: str) -> List[object]:
+    def get_transaction_id(self, subject_id: str) -> Optional[str]:
         """
-        カテゴリ検索
-        """
-        ids = self._indexes.category_index.get(category, set())
-        return [self._specs[i] for i in ids]
+        Spec の transaction_id を取得
 
-    def find_by_status(self, status: str) -> List[object]:
-        """
-        ステータス検索
-        """
-        ids = self._indexes.status_index.get(status, set())
-        return [self._specs[i] for i in ids]
+        Args:
+            subject_id (str)
 
-    def get_dependents(self, spec_id: str) -> List[object]:
+        Returns:
+            Optional[str]
         """
-        逆依存 Spec 取得
-        """
-        ids = self._indexes.reverse_dependency_index.get(spec_id, set())
-        return [self._specs[i] for i in ids]
+        return self._transaction_map.get(subject_id)
 
-    def is_registered(self, spec_id: str) -> bool:
+    def exists(self, subject_id: str) -> bool:
         """
-        登録済みか確認
+        登録確認
+
+        Args:
+            subject_id (str)
+
+        Returns:
+            bool
         """
-        return spec_id in self._specs
+        return subject_id in self._storage
+
+    def size(self) -> int:
+        """
+        登録数取得
+
+        Returns:
+            int
+        """
+        return len(self._storage)
 
     # --------------------------------------------------------
-    # Index Management
+    # State
     # --------------------------------------------------------
 
-    def _update_indexes(self, spec_doc: object):
+    def is_locked(self) -> bool:
         """
-        インデックス更新
+        ロック状態確認
+
+        Returns:
+            bool
         """
-        spec_id = spec_doc.metadata.id
-        category = getattr(spec_doc.metadata, "category", None)
-        status = getattr(spec_doc.metadata, "status", None)
-        dependencies = getattr(spec_doc.metadata, "dependencies", [])
-
-        # Category Index
-        if category:
-            self._indexes.category_index.setdefault(category, set()).add(spec_id)
-
-        # Status Index
-        if status:
-            self._indexes.status_index.setdefault(status, set()).add(spec_id)
-
-        # Reverse Dependency Index
-        if dependencies:
-            for dep in dependencies:
-                self._indexes.reverse_dependency_index.setdefault(dep, set()).add(spec_id)
-
-    def _remove_from_indexes(self, spec_doc: object):
-        """
-        インデックスから削除
-        """
-        spec_id = spec_doc.metadata.id
-        category = getattr(spec_doc.metadata, "category", None)
-        status = getattr(spec_doc.metadata, "status", None)
-        dependencies = getattr(spec_doc.metadata, "dependencies", [])
-
-        if category and category in self._indexes.category_index:
-            self._indexes.category_index[category].discard(spec_id)
-
-        if status and status in self._indexes.status_index:
-            self._indexes.status_index[status].discard(spec_id)
-
-        if dependencies:
-            for dep in dependencies:
-                if dep in self._indexes.reverse_dependency_index:
-                    self._indexes.reverse_dependency_index[dep].discard(spec_id)
+        return self._lock_flag
 
 
 # ============================================================
@@ -231,6 +205,6 @@ class SpecRegistry:
 # ============================================================
 
 if __name__ == "__main__":
-    print("Spec Registry Module")
+    print("Spec Registry Module (Immutable)")
 
 # [EOF]

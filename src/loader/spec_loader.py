@@ -1,6 +1,6 @@
 """
 Source: src/loader/spec_loader.py
-Updated: 2026-04-09T06:27:00+09:00
+Updated: 2026-04-10T00:11:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
@@ -21,7 +21,6 @@ Docstring:
 """
 
 import os
-import uuid  # 追加：IDGenerator 廃止に伴う代替
 from datetime import datetime, timezone, timedelta
 from typing import List, Any
 
@@ -38,7 +37,7 @@ from .spec_validator import SpecValidator
 from src.core.audit_log_manager import AuditLogManager
 from src.core.event_manager import EventManager
 
-# --- 修正前（削除対象） ---
+# --- 修正前（削除対象）2026-04-10T00:11:00+09:00 ---
 # from src.core.id_generator import IDGenerator
 
 __all__ = [
@@ -78,9 +77,7 @@ class SpecLoader:
         # Core Components
         self.audit_log_manager = AuditLogManager()
         self.event_manager = EventManager()
-
-        # --- 修正前 ---
-        # self.id_generator = IDGenerator()
+        self.id_generator = IDGenerator()
 
     def load_all_specs(self) -> None:
         """
@@ -101,11 +98,7 @@ class SpecLoader:
         """
 
         # --- transaction_id 発行（因果律の起点） ---
-        # 修正前:
-        # transaction_id = self.id_generator.generate_id()
-
-        # 修正後（uuid による一意ID生成）
-        transaction_id = str(uuid.uuid4())
+        transaction_id = self.id_generator.generate_id()
 
         start_time = datetime.now(JST).isoformat()
 
@@ -181,10 +174,7 @@ class SpecLoader:
         注意:
             Registry をクリアし、完全再ロードする。
         """
-        # 修正前:
-        # transaction_id = self.id_generator.generate_id()
-
-        transaction_id = str(uuid.uuid4())
+        transaction_id = self.id_generator.generate_id()
 
         self.audit_log_manager.record_event(
             transaction_id=transaction_id,

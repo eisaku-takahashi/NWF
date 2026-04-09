@@ -37,7 +37,7 @@ from .spec_validator import SpecValidator
 from src.core.audit_log_manager import AuditLogManager
 from src.core.event_manager import EventManager
 
-# --- 修正前（削除対象）2026-04-10T00:11:00+09:00 ---
+# 修正前（削除対象）2026-04-10T00:11:00+09:00
 # from src.core.id_generator import IDGenerator
 
 __all__ = [
@@ -59,6 +59,8 @@ class SpecLoader:
         - Audit / Event 完全統合
     """
 
+    # 修正前 2026-04-10T01:29:00+09:00
+    '''
     def __init__(self, spec_root: str):
         """
         初期化
@@ -78,6 +80,27 @@ class SpecLoader:
         self.audit_log_manager = AuditLogManager()
         self.event_manager = EventManager()
         self.id_generator = IDGenerator()
+    '''
+    # 修正後
+    def __init__(self, spec_registry, spec_validator, audit_log_manager, event_manager, spec_root="docs/spec"):
+        """
+        Phase 2.2 準拠の初期化（依存注入モデル）
+        """
+        # 1. 外部から注入される中核コンポーネント
+        self.registry = spec_registry
+        self.validator = spec_validator
+        self.audit_mgr = audit_log_manager
+        self.event_mgr = event_manager
+        
+        # 2. 内部で使用するユーティリティ（これらは内部生成でOK）
+        self.parser = SpecParser()
+        self.resolver = DependencyResolver()
+        
+        # 3. 設定値
+        self.spec_root = spec_root
+
+        # [重要] self.id_generator = IDGenerator() は削除
+        # 理由：既に物理削除済みであり、uuid または EntityManager を使用するため
 
     def load_all_specs(self) -> None:
         """

@@ -83,7 +83,12 @@ class DeploymentManager:
         Raises:
             Exception: 処理失敗時
         """
-        dest_path = os.path.join(self.release_base_dir, f"v{version}")
+        # 修正前 (src/release/deployment_manager.py 内)
+        # dest_path = os.path.join(self.release_base_dir, f"v{version}")
+        #
+        # 修正後：version 文字列が既に 'v' で始まっている可能性を考慮する
+        clean_version = version if version.startswith('v') else f"v{version}"
+        dest_path = os.path.join(self.release_base_dir, clean_version)
 
         print(f"[DEPLOY] Packaging release to: {dest_path}")
 

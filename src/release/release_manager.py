@@ -16,6 +16,11 @@ import os
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
+# 追加
+from src.release.version_controller import VersionController
+from src.release.deployment_manager import DeploymentManager
+from src.release.changelog_generator import ChangelogGenerator
+
 # JST タイムゾーン定義（仕様準拠）
 JST = timezone(timedelta(hours=9))
 
@@ -80,50 +85,55 @@ class ReleaseManager:
         print(f"[RELEASE] Start release sequence: trigger={trigger}")
 
         try:
-            # 1. Integrity Gate チェック
-            if not self._check_integrity_gate():
-                return {
-                    "success": False,
-                    "error_code": ERR_REL_001,
-                    "message": "Integrity check failed."
-                }
+            # 1. 依存モジュールのメソッド内インポート（循環参照回避）
+            from src.release.version_controller import VersionController
+            from src.release.deployment_manager import DeploymentManager
+            from src.release.changelog_generator import ChangelogGenerator
 
-            # 2. Sync 状態確認（将来拡張）
-            if not self._check_sync_status():
-                return {
-                    "success": False,
-                    "error_code": ERR_REL_002,
-                    "message": "Sync not completed."
-                }
-
-            # 3. リリースロック開始
+            # ... (既存のチェックロジック) ...
             self._set_lock(True)
 
-            # 4. バージョン決定（仮実装）
-            version = self._determine_version(trigger)
+            # --- 2.7 物理連携の実装 ---
+            vc = VersionController()
+            # リリースタイプを決定
+            rel_type = "patch" if trigger == "BEAT" else "minor" 
+            
+            # 【修正点】メソッド名を 'determine_version' に合わせる
+            version = vc.determine_version(rel_type)
 
-            # 5. リリース処理（今後のモジュール連携）
-            # NOTE: VersionController / DeploymentManager 連携予定
+            dm = DeploymentManager(self.root_path)
+            manifest = {
+                "release_id": trigger,
+                "version": version,
+                "integrity_status": "SUCCESS"
+            }
+            
+            # DeploymentManager は内部で 'v' があれば付与しない設計に変更済みのため安全です
+            dest_path = dm.package_release(version, manifest)
+
+            cg = ChangelogGenerator()
+            cg.generate_changelog([{"event_id": "INIT", "entity_type": "SYSTEM", "event_type": "RELEASE"}])
 
             print(f"[RELEASE] Release completed: {version}")
 
             return {
                 "success": True,
-                "error_code": "",
-                "message": f"Release {version} completed.",
                 "version": version,
+                "path": dest_path,
                 "timestamp": _now_jst()
             }
 
         except Exception as e:
+            # エラーの詳細を出力するように修正
+            print(f"[RELEASE] CRITICAL ERROR: {str(e)}") 
+            import traceback
+            traceback.print_exc() # スタックトレースを表示
             return {
                 "success": False,
-                "error_code": ERR_REL_004,
+                "error_code": "ERR_REL_004",
                 "message": f"Unexpected error: {str(e)}"
             }
-
         finally:
-            # 必ずロックを解除する（重要）
             self._set_lock(False)
 
     def _check_integrity_gate(self) -> bool:

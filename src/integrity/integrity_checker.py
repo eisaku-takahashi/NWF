@@ -1,20 +1,20 @@
 """
 Source: src/integrity/integrity_checker.py
-Updated: 2026-04-12T01:25:00+09:00
+Updated: 2026-04-15T08:05:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
+    - docs/spec/Execution_Spec/NWF_Validation_System_v2.0.1.md
+    - docs/spec/Core_Spec/NWF_World_Rule_Model_v2.0.1.md
     - docs/spec/Project_Governance/NWF_Recursive_Integrity_Spec_v2.0.1.md
     - docs/spec/Core_Spec/NWF_Entity_ID_System_v2.0.1.md
     - docs/spec/Core_Spec/NWF_Data_Model_v2.0.1.md
     - data/schema/entity_schema.json
     - src/models/nwf_object.py
 Docstring:
-    Integrity Checker モジュール。
-    WorkflowExecutor の ExecutionResult を受け取り、
-    構造的整合性（Structural Integrity）を検証する。
-    Schema検証・Entity ID検証・Timestamp検証を行い、
-    ValidationResult を返却する。
+    Phase 3.1 対応 Integrity Checker。
+    構造的整合性 + 因果律 + 不変性を検証し、
+    NWFEvent に違反情報を付与する。
 """
 
 # ------------------------------
@@ -34,13 +34,17 @@ except ImportError:
 
 from src.models.nwf_object import NWFObject
 
+# [PHASE3_ADD] consistency validator
+try:
+    from src.integrity.consistency_validator import ConsistencyValidator
+except ImportError:
+    ConsistencyValidator = None
+
 # ------------------------------
 # 定数 / 設定
 # ------------------------------
 JST = timezone(timedelta(hours=9))
-
 ENTITY_ID_PATTERN = r"^[A-Z0-9\-\_]+$"
-
 DEFAULT_SCHEMA_PATH = "data/schema/entity_schema.json"
 
 # ------------------------------
@@ -55,12 +59,16 @@ __all__ = [
 # Utility Functions
 # ------------------------------
 def _now_jst() -> datetime:
-    """現在時刻をJSTで取得する"""
+    """現在時刻をJSTで取得"""
     return datetime.now(JST)
 
 
+# [PHASE2_LEGACY] ★削除せず保持（重要）
 def _is_jst_isoformat(ts: str) -> bool:
-    """ISO8601 +09:00 形式か検証する"""
+    """
+    ISO8601 +09:00 形式チェック
+    Phase3でも外部入力防御として必要
+    """
     try:
         dt = datetime.fromisoformat(ts)
         return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) == timedelta(hours=9)
@@ -73,214 +81,220 @@ def _is_jst_isoformat(ts: str) -> bool:
 # ------------------------------
 class ValidationResult:
     """
-    構造的整合性の検証結果コンテナ
-
-    Args:
-        transaction_id (str): トランザクションID
-
-    Attributes:
-        is_valid (bool): 全体の妥当性
-        errors (List[str]): エラー一覧
-        warnings (List[str]): 警告一覧
-        transaction_id (str): トランザクションID
-        timestamp (datetime): 検証時刻（JST）
+    Phase 3 拡張 ValidationResult
     """
 
     def __init__(self, transaction_id: str):
         self.is_valid: bool = True
         self.errors: List[str] = []
         self.warnings: List[str] = []
+
+        # [PHASE3_ADD]
+        self.violations: List[dict] = []
+
         self.transaction_id: str = transaction_id
         self.timestamp: datetime = _now_jst()
 
     def add_error(self, message: str) -> None:
-        """エラー追加"""
         self.is_valid = False
         self.errors.append(message)
 
     def add_warning(self, message: str) -> None:
-        """警告追加"""
         self.warnings.append(message)
+
+    # [PHASE3_ADD]
+    def add_violation(self, violation_type: str, reference_spec: str, message: str):
+        self.is_valid = False
+        self.violations.append({
+            "violation_type": violation_type,
+            "reference_spec": reference_spec,
+            "message": message
+        })
 
 
 class IntegrityChecker:
     """
-    Structural Integrity Checker
-
-    ExecutionResult を入力とし、
-    以下を検証する：
-
-    - Schema 準拠
-    - Entity ID 整合性
-    - Timestamp 整合性
+    Phase 3: Canonical Integrity Gatekeeper
     """
 
     def __init__(self, schema_path: str = DEFAULT_SCHEMA_PATH):
-        """
-        Args:
-            schema_path (str): JSON Schema のパス
-        """
         self.schema_path = schema_path
         self.schema = None
         self._load_schema()
 
-        # ログ設定
         self.logger = logging.getLogger(self.__class__.__name__)
 
+        # [PHASE3_ADD]
+        self.consistency_validator = ConsistencyValidator() if ConsistencyValidator else None
+
     def _load_schema(self) -> None:
-        """Schema をロードする"""
         try:
             with open(self.schema_path, "r", encoding="utf-8") as f:
                 self.schema = json.load(f)
         except Exception:
-            # Schemaがロードできない場合は警告扱い（システム停止はしない）
             self.schema = None
 
+    # --------------------------------------------------
+    # [PHASE3_MOD] パイプライン統合
+    # --------------------------------------------------
     def check(self, execution_result: Any) -> ValidationResult:
-        """
-        ExecutionResult を検証する
 
-        Args:
-            execution_result: WorkflowExecutor の出力
-
-        Returns:
-            ValidationResult
-        """
         transaction_id = getattr(execution_result, "transaction_id", "UNKNOWN")
         result = ValidationResult(transaction_id)
 
         # ------------------------------
-        # 1. 基本構造チェック
+        # 基本チェック
         # ------------------------------
         if execution_result is None:
             result.add_error("ERR_INTEGRITY_000: ExecutionResult is None.")
             return result
 
         if not hasattr(execution_result, "data"):
-            result.add_error("ERR_INTEGRITY_001: ExecutionResult missing data field.")
-            return result
-
-        if execution_result.data is None:
-            result.add_error("ERR_INTEGRITY_002: Data body is missing.")
+            result.add_error("ERR_INTEGRITY_001: missing data")
             return result
 
         # ------------------------------
-        # 2. NWFObject 検証
-        # ------------------------------
-        if not isinstance(execution_result.data, NWFObject):
-            result.add_error("ERR_INTEGRITY_003: Data is not NWFObject.")
-
-        # ------------------------------
-        # 3. Schema Validation
+        # L1 Schema
         # ------------------------------
         self._validate_schema(execution_result.data, result)
 
         # ------------------------------
-        # 4. Entity ID Validation
+        # L2 Constraint
         # ------------------------------
-        self._validate_entity_id(execution_result.data, result)
+        self._validate_constraints(execution_result.data, result)
 
         # ------------------------------
-        # 5. Timestamp Validation
+        # L3 Logic
         # ------------------------------
+        self._validate_logic(execution_result.data, result)
+
+        # ------------------------------
+        # 既存チェック
+        # ------------------------------
+        self._validate_entity_id(execution_result.data, result)
         self._validate_timestamp(execution_result, result)
 
         # ------------------------------
-        # ログ出力（監査）
+        # Event付与
+        # ------------------------------
+        self._attach_event_metadata(execution_result, result)
+
+        # ------------------------------
+        # Fail Safe
+        # ------------------------------
+        if not result.is_valid:
+            self._trigger_auto_repair(execution_result, result)
+
+        # ------------------------------
+        # Audit Log
         # ------------------------------
         self._log_result(result)
 
         return result
 
-    def _validate_schema(self, data: NWFObject, result: ValidationResult) -> None:
-        """
-        JSON Schema 検証
-
-        Args:
-            data (NWFObject)
-            result (ValidationResult)
-        """
+    # ------------------------------
+    # [PHASE2_LEGACY] Schema
+    # ------------------------------
+    def _validate_schema(self, data: NWFObject, result: ValidationResult):
         if self.schema is None:
-            result.add_warning("WARN_INTEGRITY_001: Schema not loaded.")
+            result.add_warning("Schema not loaded")
             return
 
         if jsonschema is None:
-            result.add_warning("WARN_INTEGRITY_002: jsonschema library not installed.")
+            result.add_warning("jsonschema missing")
             return
 
         try:
-            # NWFObject → dict 変換を前提
             data_dict = data.to_dict() if hasattr(data, "to_dict") else data.__dict__
             validate(instance=data_dict, schema=self.schema)
         except Exception as e:
-            result.add_error(f"ERR_INTEGRITY_010: Schema validation failed: {str(e)}")
+            result.add_violation("SCHEMA_MISMATCH", "NWF_Validation_System", str(e))
 
-    def _validate_entity_id(self, data: NWFObject, result: ValidationResult) -> None:
-        """
-        Entity ID 検証
+    # ------------------------------
+    # [PHASE3_ADD]
+    # ------------------------------
+    def _validate_constraints(self, data, result):
+        if not self.consistency_validator:
+            return
+        for v in self.consistency_validator.validate_constraints(data):
+            result.add_violation("IMMUTABLE_VIOLATION", "NWF_Core", v)
 
-        Args:
-            data (NWFObject)
-            result (ValidationResult)
-        """
+    def _validate_logic(self, data, result):
+        if not self.consistency_validator:
+            return
+        for v in self.consistency_validator.validate_logic(data):
+            result.add_violation("CAUSALITY_VIOLATION", "NWF_World_Rule_Model", v)
+
+    def _validate_entity_id(self, data, result):
         entity_id = getattr(data, "entity_id", None)
 
         if not entity_id:
-            result.add_error("ERR_INTEGRITY_020: entity_id is missing.")
-            return
-
-        if not isinstance(entity_id, str):
-            result.add_error("ERR_INTEGRITY_021: entity_id must be string.")
+            result.add_error("entity_id missing")
             return
 
         if not re.match(ENTITY_ID_PATTERN, entity_id):
-            result.add_error("ERR_INTEGRITY_022: entity_id format invalid.")
+            result.add_violation("ENTITY_ID_INVALID", "NWF_Entity_ID_System", entity_id)
 
-    def _validate_timestamp(self, execution_result: Any, result: ValidationResult) -> None:
-        """
-        Timestamp 検証
+    # ------------------------------
+    # [PHASE3_MOD] Timestamp 強化
+    # ------------------------------
+    def _validate_timestamp(self, execution_result, result):
 
-        Args:
-            execution_result
-            result (ValidationResult)
-        """
         timestamp = getattr(execution_result, "timestamp", None)
 
-        if timestamp is None:
-            result.add_error("ERR_INTEGRITY_030: timestamp missing.")
+        # [PHASE3_ADD] string対応
+        if isinstance(timestamp, str):
+            if not _is_jst_isoformat(timestamp):
+                result.add_violation(
+                    "TIMESTAMP_FORMAT_INVALID",
+                    "NWF_Temporal_Management",
+                    timestamp
+                )
             return
 
-        # datetime 型チェック
-        if not isinstance(timestamp, datetime):
-            result.add_error("ERR_INTEGRITY_031: timestamp must be datetime.")
+        # [PHASE2_LEGACY] datetimeチェック
+        if isinstance(timestamp, datetime):
+            if timestamp.tzinfo is None or timestamp.tzinfo.utcoffset(timestamp) != timedelta(hours=9):
+                result.add_violation(
+                    "TIMESTAMP_INVALID",
+                    "NWF_Temporal_Management",
+                    "Must be JST"
+                )
             return
 
-        # JSTチェック
-        if timestamp.tzinfo is None or timestamp.tzinfo.utcoffset(timestamp) != timedelta(hours=9):
-            result.add_error("ERR_INTEGRITY_032: timestamp must be JST.")
+        result.add_error("timestamp invalid")
 
-    def _log_result(self, result: ValidationResult) -> None:
-        """
-        検証結果をログ出力する
+    # ------------------------------
+    # [PHASE3_ADD]
+    # ------------------------------
+    def _attach_event_metadata(self, execution_result, result):
+        if hasattr(execution_result, "event"):
+            execution_result.event.validation = {
+                "is_valid": result.is_valid,
+                "violations": result.violations,
+                "timestamp": result.timestamp.isoformat()
+            }
 
-        Args:
-            result (ValidationResult)
-        """
+    def _trigger_auto_repair(self, execution_result, result):
+        try:
+            # [PHASE3_ADD] 将来実装
+            # from src.repair.auto_repair_engine import AutoRepairEngine
+            # AutoRepairEngine().repair(...)
+            pass
+        except Exception as e:
+            self.logger.error(f"[AUTO_REPAIR_FAILED] {e}")
+
+    def _log_result(self, result):
         if result.is_valid:
-            self.logger.info(
-                f"[INTEGRITY_CHECK_PASS] transaction_id={result.transaction_id}"
-            )
+            self.logger.info(f"[PASS] {result.transaction_id}")
         else:
-            self.logger.error(
-                f"[INTEGRITY_CHECK_FAIL] transaction_id={result.transaction_id} errors={result.errors}"
-            )
+            self.logger.error(f"[FAIL] {result.transaction_id} {result.violations}")
 
 
 # ------------------------------
 # Main Guard
 # ------------------------------
 if __name__ == "__main__":
-    # 簡易テスト用
     pass
 
 

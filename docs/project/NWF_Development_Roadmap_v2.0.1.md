@@ -1,5 +1,5 @@
 Source: docs/project/NWF_Development_Roadmap_v2.0.1.md
-Updated: 2026-04-06T03:08:00+09:00
+Updated: 2026-04-15T04:20:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Development Roadmap v2.0.1
@@ -9,292 +9,273 @@ PIC: Engineer / ChatGPT
 ## 1. 概要
 
 NWF（Narrative Workflow Framework）は、
-**物語を生成・管理・進化させるための Narrative Operating System（Story OS）**である。
+物語生成・管理・進化を統合する Narrative Operating System（Story OS）である。
 
-本ドキュメントは、NWF を単なるツールではなく
-**因果律を強制する OS として完成させるための開発ロードマップ**を定義する。
+本ロードマップは、Phase 2.8 までに構築された
+「自律駆動基盤（Autonomous Shell）」を前提とし、
 
-NWF の根本定義：
-
-- Story = Data + Logic + Pipeline
-- Current State = f(Initial State + Σ Transactions)
-
-本ロードマップは、Spec-Driven Architecture と Kernel-Centric 設計に基づき、
-**仕様・実装・運用を統合した開発戦略**を提示する。
+**実際に人間が連載小説を制作できる状態へ到達するまでの開発指針**を定義する。
 
 ---
 
-## 2. Architecture Stack（8層構造）
+## 2. 現状整理（2026-04-15 時点）
 
-NWF は以下の 8 層で構成される。
+### 2.1 到達地点
 
-### 2.1 Layer Definition
+Phase 2.1 〜 2.8 の完了により、以下が成立：
 
-| Layer        | 役割 |
-|--------------|------|
-| Philosophy   | 設計思想（因果律・不変性・正典性） |
-| Spec         | 世界の定義（Schema / Data Model） |
-| Kernel       | 因果律の強制（Audit / State / Transaction） |
-| Engine       | 物語演算（Story / Timeline / Emotion） |
-| Workflow     | 実行制御（AI Collaboration / HITL） |
-| Production   | 出力生成（Scene / Draft / Narrative） |
-| Governance   | 整合性管理（Spec / Audit / Version） |
-| Optimization | 改善ループ（Analysis / Feedback） |
+- Audit Log による完全トレーサビリティ
+- Event-Driven Architecture の確立
+- Workflow + HITL による意思決定制御
+- GitHub Sync / Release の自動化
+- System Orchestrator による自律実行
 
-### 2.2 構造原則
-
-- 下位層は上位層に依存されるが、逆は不可
-- Kernel は全レイヤの整合性を強制する「重力中心」
-- Spec はすべての実装の正典
+**結論：**
+NWF は「自律的に動く OS」として完成済み
 
 ---
 
-## 3. Kernel / Core System 責務
+### 2.2 現在のシステム状態
 
-Kernel は「物語の物理法則」を実装する。
-
-### 3.1 Core Responsibilities
-
-- Identity Management（UUID v7）
-- Audit Log（全トランザクション記録）
-- State Machine（状態遷移制御）
-- Transaction（原子操作）
-- Validation（Schema + 因果律）
-- Version Control（Snapshot 管理）
-
-### 3.2 Kernel Principle
-
-- No Log, No Change
-- Append-Only
-- Immutability
-
----
-
-## 4. Implementation Dependency Graph
-
-### 4.1 実装順序
-
-Foundation → Kernel → Core → Loader → Engine → Workflow → Governance
-
-### 4.2 Dependency Detail
-
-1. Entity Schema / Metadata Schema
-2. ID Generator（UUID v7）
-3. AuditLogManager
-4. DataStateManager
-5. EntityManager / VersionManager
-6. SpecParser / SpecRegistry
-7. QueryEngine
-8. Story / Timeline Engine
-9. Workflow（AI Collaboration）
-10. Governance（Audit / Spec Control）
-
----
-
-## 5. Development Phases
-
-### Phase 1: Spec Foundation（完了）
-
-内容：
-- Core Spec / Data Spec 定義
-
-DoD：
-- 全 Schema 定義完了
-- JSON Validation 成功
-
----
-
-### Phase 2.1: Core Data Control（完了）
-
-内容：
-- Kernel 基本実装
-- Audit Log / State 管理
-
-DoD：
-- Entity 作成 → Audit Log 記録成功
-- State 遷移が正常動作
-
----
-
-### Phase 2.2: Integrity & Validation（次）
-
-内容：
-- Validation System 強化
-- 状態遷移の厳密化
-
-DoD：
-- 不正データの完全拒否
-- Schema + 因果律の統合検証
-
----
-
-### Phase 3: Engine Integration
-
-内容：
-- Story Engine / Timeline Engine 実装
-
-DoD：
-- Entity → Plot 構造生成可能
-
----
-
-### Phase 4: AI Workflow & HITL
-
-内容：
-- AI Collaboration Model 実装
-- Antigravity 連携
-
-DoD：
-- AI + Human による共同制作
-- Audit Log ベースの操作統合
-
----
-
-### Phase 5: Production Pipeline
-
-内容：
-- Scene → Draft → Release Pipeline
-
-DoD：
-- 物語生成フロー完全稼働
-
----
-
-### Phase 6: Governance System
-
-内容：
-- Audit / Version / Spec Governance
-
-DoD：
-- 全変更が追跡可能
-- Spec と実装の整合性維持
-
----
-
-### Phase 7: Optimization Loop
-
-内容：
-- Analysis / Feedback / Spec Update
-
-DoD：
-- Recursive Improvement Loop 稼働
-
----
-
-## 6. MVP Definition
-
-### 6.1 Kernel MVP
-
-- UUID v7 ID
-- Audit Log（JSONL）
-- 基本 State 管理
-
-### 6.2 Engine MVP
-
-- Query Engine
-- Timeline ソート
-
-### 6.3 Workflow MVP
-
-- GitHub Sync
-- AI ブリーフィング
-
----
-
-## 7. Development Lifecycle
-
-### 7.1 OS Development Loop
-
-Spec → Kernel → Engine → Workflow → Production → Governance → Optimization → Spec
-
-### 7.2 Story Production Loop
-
-Idea → World → Character → Thread → Scene → Draft → Review → Release → Feedback → Improve
-
----
-
-## 8. Directory / Module 対応
-
-### 8.1 Directory Structure
-
-NWF/
- ├── docs/
- ├── src/
- ├── data/
- ├── logs/
-
-### 8.2 Module Mapping
-
-| Module | 役割 |
+| レイヤ | 状態 |
 |--------|------|
-| core   | Kernel 実装 |
-| models | Entity 定義 |
-| loader | Spec 読み込み |
-| engine | 物語演算 |
-| workflow | 制御 |
-| governance | 監査 |
+| Kernel | 完全稼働 |
+| Infrastructure | 基盤完成（ロジック不足あり） |
+| Autonomous | 完全稼働 |
+| Agency | 稼働中 |
+| Application | 未着手 |
 
 ---
 
-## 9. Logging / Audit / Governance
+## 3. アーキテクチャ（再定義）
 
-### 9.1 Log Types
+### 3.1 5層構造
 
-- Audit Log（不可変）
-- Engine Log
-- Validation Log
-- Error Log
-
-### 9.2 Policy
-
-- Audit Log は削除不可
-- すべての変更は Transaction 経由
+| Layer | 名称 | 役割 |
+|------|------|------|
+| L1 | Kernel | ID / Audit / State 管理 |
+| L2 | Infrastructure | Spec / Validation / Integrity |
+| L3 | Autonomous | Automation / Orchestrator |
+| L4 | Agency | HITL / AI Workflow |
+| L5 | Application | Engine / Production |
 
 ---
 
-## 10. Critical Path
-
-最優先課題：
-
-- UUID v7 への統一
-- subject_id 命名統一
-- Validation System 完成
-- Audit Log 完全強制
+## 4. Phase 再構築
 
 ---
 
-## 11. Next Action
+### Phase 2: Autonomous Foundation（完了）
 
-Phase 2.2 移行条件：
+期間：〜2026-04-14
 
-- Kernel 動作安定
-- Schema 完全適用
-- Audit Log 整合性確認
+#### 内容
 
-次ステップ：
+- Phase 2.1 Core Data Control
+- Phase 2.2 Spec Loader
+- Phase 2.3 HITL
+- Phase 2.4 Workflow Engine
+- Phase 2.5 Recursive Integrity
+- Phase 2.6 GitHub Sync
+- Phase 2.7 Release Manager
+- Phase 2.8 Automation
 
-- Validation System 実装
-- Concurrency Control Spec 作成
-- Temporal Management Spec 作成
+#### 成果
+
+- 自律駆動 OS 完成
+- 統合テスト PASS
+- Audit Log 完全記録
 
 ---
 
-## 12. まとめ
+### Phase 3: Logic Injection & Engine Integration（現在）
 
-NWF は以下の原則に基づく：
+#### 目的
 
-- Spec First
-- Kernel-Centric
-- Causality Driven
-- Immutability
-- Human-in-the-loop
-- Recursive Optimization
+自律基盤に「物語の法則（ロジック）」を注入する
 
-NWF はツールではなく、
+---
 
-**「物語の因果律を管理する OS」**
+#### Phase 3.1 Logic Injection
 
-である。
+対象：
+
+- src/integrity/consistency_validator.py
+- src/integrity/integrity_checker.py
+
+実装内容：
+
+- 因果律検証
+- World Rule 適用
+- Narrative Consistency チェック
+
+DoD：
+
+- Spec と完全一致
+- 不整合データの拒否
+
+---
+
+#### Phase 3.2 Temporal Management
+
+対象：
+
+- src/core/metadata_manager.py
+
+実装内容：
+
+- JST と作中時間の同期
+- 時系列矛盾検知
+
+DoD：
+
+- Timeline 一貫性保証
+
+---
+
+#### Phase 3.3 Engine Skeleton
+
+対象：
+
+- src/engine/story_engine.py（新規）
+
+実装内容：
+
+- Entity → Story Graph 変換
+- Timeline 生成
+
+DoD：
+
+- 最小ストーリー構造出力可能
+
+---
+
+#### Phase 3.4 Query Engine
+
+対象：
+
+- src/engine/query_engine.py（新規）
+
+実装内容：
+
+- データ検索
+- 条件抽出
+
+DoD：
+
+- 任意条件での検索成功
+
+---
+
+### Phase 4: Production Pipeline
+
+#### 目的
+
+実際の小説生成を可能にする
+
+---
+
+#### Phase 4.1 Scene Pipeline
+
+- Scene → Draft → Review → Release
+
+---
+
+#### Phase 4.2 AI Rewrite Loop
+
+- 自動修正
+- 一貫性維持
+
+---
+
+#### Phase 4.3 Episode Builder
+
+対象：
+
+- Episode 1（試験作品）
+
+DoD：
+
+- 1話分の完全生成成功
+
+---
+
+### Phase 5: Narrative Operation
+
+#### 目的
+
+人間による連載運用の実現
+
+---
+
+#### Phase 5.1 Authoring Workflow
+
+- Human + AI 協調執筆
+
+---
+
+#### Phase 5.2 Continuous Publishing
+
+- GitHub + Release 連携
+- 自動公開
+
+---
+
+#### Phase 5.3 Feedback Loop
+
+- 読者フィードバック → Spec 更新
+
+---
+
+### Phase 6: Governance & Optimization
+
+#### 内容
+
+- Spec 統合
+- Core / Kernel 重複排除
+- 自動最適化ループ
+
+---
+
+## 5. 重要課題（Critical Path）
+
+1. Validation Logic 実装
+2. Temporal Management
+3. Engine 実装
+4. Spec と Code の完全同期
+5. Namespace 正規化
+
+---
+
+## 6. Definition of Done（更新版）
+
+すべての機能は以下を満たす必要がある：
+
+1. Spec-Code 一致
+2. Integration Test PASS
+3. Audit Log 記録
+4. GitHub 自動同期
+
+---
+
+## 7. 最終到達目標
+
+NWF は以下を達成する：
+
+- 人間が物語を書く OS
+- AI が補助・検証する環境
+- 因果律を破らない物語生成
+
+---
+
+## 8. 結論
+
+Phase 2 により「殻」は完成した。
+
+Phase 3 以降は、
+
+**物語の法則（Logic）を実装し、
+物語そのものを生成する段階へ移行する。**
 
 ---
 

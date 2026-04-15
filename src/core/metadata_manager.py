@@ -1,17 +1,24 @@
 """
 Source: src/core/metadata_manager.py
-Updated: 2026-04-04T21:27:00+09:00
+Updated: 2026-04-15T12:00:00+09:00  # 修正後更新
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Core_Spec/Audit_System.md
     - docs/spec/Data_Spec/Data_Model.md
     - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
+    - docs/spec/Kernel_Spec/NWF_Temporal_Management_v2.0.1.md  # 追加（時間管理）
+    - docs/spec/Kernel_Spec/NWF_Kernel_Core_Concept_v2.0.1.md  # 追加（因果律）
 Docstring:
     Metadata Manager モジュール。
     Entity に付随する metadata の初期化・更新・検証・監査コンテキスト管理を行う。
     データ本体(content)とシステム文脈(metadata)を分離し、
     追跡可能性・監査性・因果関係(Provenance)を保証する。
+
+    Phase 3.1 拡張:
+    - JST と Timeline のデュアル時間管理
+    - 時間変換インターフェース
+    - 時間逆転矛盾（Temporal Paradox）検知
 """
 
 from datetime import datetime, timezone, timedelta
@@ -29,9 +36,6 @@ __all__ = [
 def get_current_timestamp() -> str:
     """
     現在時刻を ISO8601 JST 形式で取得する。
-
-    Returns:
-        str: ISO8601形式のタイムスタンプ
     """
     return datetime.now(JST).isoformat()
 
@@ -39,19 +43,49 @@ def get_current_timestamp() -> str:
 class MetadataManager:
     """
     MetadataManager クラス。
-
-    Entity の metadata を管理する。
-    初期化、更新、検証、監査コンテキスト管理を担当する。
     """
 
-    def __init__(self, spec_loader=None):
+    def __init__(self, spec_loader=None, timeline_anchor: int = 0):
         """
-        MetadataManager 初期化。
+        初期化処理
+
+        修正前:
+            spec_loader のみ
+
+        修正後:
+            timeline_anchor を追加
+            → Timelineの基準点（Anchor Point）として使用
 
         Args:
-            spec_loader: Spec ID の検証に使用するローダー
+            spec_loader: Spec検証用
+            timeline_anchor (int): Timeline基準値
         """
         self.spec_loader = spec_loader
+        self.timeline_anchor = timeline_anchor  # Phase 3.1追加
+        self.timeline_map: Dict[str, int] = {}  # transaction_id → timeline_index
+
+    # ------------------------------
+    # Phase 3.1 追加: 時間変換
+    # ------------------------------
+    def convert_to_timeline_date(self, jst_time: str) -> int:
+        """
+        JST → Timeline 変換
+
+        なぜ必要か：
+        - 現実時間と作中時間を対応させるため
+
+        実装方針：
+        - 簡易的にUNIX秒ベース → 整数インデックスへ変換
+        """
+        dt = datetime.fromisoformat(jst_time)
+        return int(dt.timestamp())
+
+    def convert_to_real_time(self, timeline_index: int) -> str:
+        """
+        Timeline → JST 変換
+        """
+        dt = datetime.fromtimestamp(timeline_index, JST)
+        return dt.isoformat()
 
     def initialize_metadata(
         self,
@@ -61,39 +95,42 @@ class MetadataManager:
         derivation_type: str = "MANUAL_CREATE"
     ) -> Dict[str, Any]:
         """
-        新規 Entity 用 metadata を初期化する。
-
-        Args:
-            spec_id (str): 準拠 Spec ID
-            actor_id (str): 操作主体 ID
-            parent_entity_id (Optional[str]): 親 Entity ID
-            derivation_type (str): 生成種別
-
-        Returns:
-            Dict[str, Any]: 初期化された metadata
-
-        Raises:
-            ValueError: actor_id または spec_id が不正な場合
+        metadata 初期化
         """
 
         if not actor_id:
-            raise ValueError("actor_id is required for metadata initialization")
+            raise ValueError("actor_id is required")
 
         if not spec_id:
-            raise ValueError("spec_id is required for metadata initialization")
+            raise ValueError("spec_id is required")
 
-        # Spec ID 検証
         if self.spec_loader:
             if not self.spec_loader.is_valid_spec_id(spec_id):
                 raise ValueError(f"Invalid spec_id: {spec_id}")
 
         current_time = get_current_timestamp()
 
+        # ------------------------------
+        # 修正前:
+        # metadata = {...}
+        #
+        # 修正後:
+        # timeline_index を追加
+        # ------------------------------
+        timeline_index = self.convert_to_timeline_date(current_time)
+
         metadata = {
             "source_spec_id": spec_id,
             "actor_id": actor_id,
             "created_at": current_time,
             "updated_at": current_time,
+
+            # Phase 3.1追加
+            "timeline": {
+                "chronological_index": timeline_index,
+                "anchor": self.timeline_anchor
+            },
+
             "audit_context": {
                 "last_transaction_id": None,
                 "change_reason": "Entity Created",
@@ -117,33 +154,42 @@ class MetadataManager:
         workflow_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        metadata 更新処理。
-
-        Args:
-            current_metadata (Dict[str, Any]): 現在の metadata
-            actor_id (str): 操作主体 ID
-            transaction_id (str): 監査トランザクション ID
-            reason (Optional[str]): 変更理由
-            workflow_id (Optional[str]): Workflow ID
-
-        Returns:
-            Dict[str, Any]: 更新された metadata
-
-        Raises:
-            ValueError: actor_id 未指定など
+        metadata 更新
         """
 
         if not actor_id:
-            raise ValueError("actor_id is required for metadata update")
+            raise ValueError("actor_id is required")
 
         if "created_at" not in current_metadata:
             raise ValueError("Invalid metadata: created_at missing")
 
-        # updated_at 更新
-        current_metadata["updated_at"] = get_current_timestamp()
+        # ------------------------------
+        # 修正前:
+        # updated_at のみ更新
+        #
+        # 修正後:
+        # timeline も更新
+        # ------------------------------
+        new_time = get_current_timestamp()
+        new_timeline = self.convert_to_timeline_date(new_time)
+
+        # ------------------------------
+        # Phase 3.1: Temporal Paradox Check
+        # ------------------------------
+        old_timeline = current_metadata.get("timeline", {}).get("chronological_index")
+
+        if old_timeline is not None:
+            if new_timeline < old_timeline:
+                raise ValueError("TEMPORAL_CAUSALITY_VIOLATION: Timeline reversal detected")
+
+        current_metadata["updated_at"] = new_time
         current_metadata["actor_id"] = actor_id
 
-        # audit_context 更新
+        # timeline更新
+        current_metadata.setdefault("timeline", {})
+        current_metadata["timeline"]["chronological_index"] = new_timeline
+
+        # audit更新
         audit_context = current_metadata.get("audit_context", {})
         audit_context["last_transaction_id"] = transaction_id
 
@@ -157,30 +203,9 @@ class MetadataManager:
 
         return current_metadata
 
-    def get_audit_context(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        audit_context を取得する。
-
-        Args:
-            metadata (Dict[str, Any]): metadata
-
-        Returns:
-            Dict[str, Any]: audit_context
-        """
-        return metadata.get("audit_context", {})
-
     def validate_metadata(self, metadata: Dict[str, Any]) -> bool:
         """
-        metadata の整合性チェック。
-
-        Args:
-            metadata (Dict[str, Any]): metadata
-
-        Returns:
-            bool: 検証結果
-
-        Raises:
-            ValueError: 不正な metadata
+        metadata 検証
         """
 
         required_fields = [
@@ -192,26 +217,38 @@ class MetadataManager:
 
         for field in required_fields:
             if field not in metadata:
-                raise ValueError(f"Metadata missing required field: {field}")
+                raise ValueError(f"Missing field: {field}")
 
-        # created_at <= updated_at チェック
         created_at = metadata["created_at"]
         updated_at = metadata["updated_at"]
 
         if created_at > updated_at:
-            raise ValueError("created_at cannot be later than updated_at")
+            raise ValueError("created_at > updated_at")
 
-        # Spec ID 検証
+        # ------------------------------
+        # Phase 3.1: Timeline検証追加
+        # ------------------------------
+        timeline = metadata.get("timeline")
+
+        if timeline:
+            index = timeline.get("chronological_index")
+            anchor = timeline.get("anchor")
+
+            if index is None:
+                raise ValueError("Timeline index missing")
+
+            if index < anchor:
+                raise ValueError("TEMPORAL_CAUSALITY_VIOLATION: before anchor point")
+
         if self.spec_loader:
             spec_id = metadata["source_spec_id"]
             if not self.spec_loader.is_valid_spec_id(spec_id):
-                raise ValueError(f"Invalid spec_id in metadata: {spec_id}")
+                raise ValueError(f"Invalid spec_id: {spec_id}")
 
         return True
 
 
 if __name__ == "__main__":
-    # 簡易テスト
     manager = MetadataManager()
 
     metadata = manager.initialize_metadata(
@@ -222,8 +259,7 @@ if __name__ == "__main__":
     metadata = manager.update_metadata(
         current_metadata=metadata,
         actor_id="USR-Test",
-        transaction_id="TXN-001",
-        reason="Test Update"
+        transaction_id="TXN-001"
     )
 
     print(metadata)

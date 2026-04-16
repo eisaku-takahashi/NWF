@@ -1,14 +1,15 @@
 """
 Source: src/integrity/consistency_validator.py
-Updated: 2026-04-15T09:37:00+09:00  # 修正後更新
+Updated: 2026-04-16T07:55:00+09:00  # World Rule 対応修正
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Project_Governance/NWF_Recursive_Integrity_Spec_v2.0.1.md
     - docs/spec/Core_Spec/NWF_State_Transition_Model_v2.0.1.md
     - docs/spec/Core_Spec/NWF_World_Rule_Model_v2.0.1.md
-    - docs/spec/Architecture_Spec/NWF_Narrative_Consistency_Model_v2.0.1.md  # 追加（Spec準拠）
-    - docs/spec/Kernel_Spec/NWF_Kernel_Core_Concept_v2.0.1.md  # 追加（不変性チェック用）
+    - docs/spec/Core_Spec/NWF_World_Rule_Execution_v2.0.1.md  # 追加（新Spec）
+    - docs/spec/Architecture_Spec/NWF_Narrative_Consistency_Model_v2.0.1.md
+    - docs/spec/Kernel_Spec/NWF_Kernel_Core_Concept_v2.0.1.md
     - src/workflow/workflow_context.py
     - src/integrity/integrity_checker.py
 Docstring:
@@ -20,6 +21,10 @@ Docstring:
     Phase 3.1 対応：
     - 再帰的整合性チェック追加
     - 不変性チェック（Kernel Guard）追加
+
+    Phase 3.3 事前修正：
+    - 「死亡キャラ行動禁止」を廃止
+    - World Rule に基づく可否判定へ変更（Narrative Relativity 原則）
 """
 
 from datetime import datetime, timezone, timedelta
@@ -63,7 +68,19 @@ class ConsistencyValidator:
             story_db (Optional[Any]): 過去データ参照用ストレージ
         """
         self.story_db = story_db
-        self.world_rules: Dict[str, Any] = {}
+
+        # ------------------------------
+        # 修正前:
+        # self.world_rules: Dict[str, Any] = {}
+        #
+        # 修正後:
+        # デフォルト値を持つ形で初期化（後方互換性・安全性確保）
+        # ------------------------------
+        self.world_rules: Dict[str, Any] = {
+            "allow_resurrection": False,
+            "allow_ghost_activity": False,
+            "allow_time_reversal": False
+        }
 
     def validate(
         self,
@@ -102,6 +119,31 @@ class ConsistencyValidator:
             return res
 
         # ------------------------------
+        # World Rule 読み込み（Phase 3.3 修正）
+        # ------------------------------
+
+        # 修正前:
+        # self.world_rules = context.metadata.get("world_rules", {})
+
+        # 修正後:
+        # DEFAULT_WORLD_RULES を明示定義し、マージする
+        # なぜ必要か：
+        # - 未定義時の挙動を明確化
+        # - Spec Driven Development における暗黙仕様排除
+        # - 将来拡張への耐性確保
+        DEFAULT_WORLD_RULES = {
+            "allow_resurrection": False,
+            "allow_ghost_activity": False,
+            "allow_time_reversal": False
+        }
+
+        # マージ（context優先）
+        self.world_rules = {
+            **DEFAULT_WORLD_RULES,
+            **context.metadata.get("world_rules", {})
+        }
+
+        # ------------------------------
         # 既存チェック
         # ------------------------------
         self._check_state_transition(context, res)
@@ -135,13 +177,9 @@ class ConsistencyValidator:
     def _check_immutability(self, context: WorkflowContext, res: ConsistencyResult) -> None:
         """
         Kernel不変性チェック
-
-        なぜ必要か：
-        - UUIDや生成日時の改ざんはシステム整合性を破壊するため
         """
 
         immutable_fields = ["uuid", "created_at", "origin_event_id"]
-
         current_entities = context.global_vars
 
         if not self.story_db:
@@ -167,11 +205,11 @@ class ConsistencyValidator:
                         res.violations.append(
                             f"IMMUTABILITY_BREACH: {entity_id}.{field} modified"
                         )
-                        return  # 即停止
+                        return
 
     def _check_state_transition(self, context: WorkflowContext, res: ConsistencyResult) -> None:
         """
-        状態遷移チェック（変更なし）
+        状態遷移チェック
         """
 
         current_state = context.metadata.get("state")
@@ -196,28 +234,18 @@ class ConsistencyValidator:
 
     def _check_world_rule_violation(self, context: WorkflowContext, res: ConsistencyResult) -> None:
         """
-        世界設定違反チェック（既存）
+        世界設定違反チェック
         """
 
         if context.metadata.get("world_rule_violation"):
             res.is_consistent = False
             res.violations.append(
-                "ERR_CAUSAL_002: World rule violation detected."
+                "ERR_WORLD_RULE_001: World rule violation detected."
             )
 
-    # ------------------------------
-    # 修正前:
-    # def _check_entity_continuity(...)
-    #
-    # 修正後:
-    # 再帰的整合性チェックへ拡張
-    # ------------------------------
     def _check_recursive_consistency(self, context: WorkflowContext, res: ConsistencyResult) -> None:
         """
         再帰的整合性チェック
-
-        なぜ必要か：
-        - エンティティ単体ではなく、Scene / Threadとの整合性を保証するため
         """
 
         if not self.story_db:
@@ -239,7 +267,7 @@ class ConsistencyValidator:
                 continue
 
             # ------------------------------
-            # 既存ロジック（保持）
+            # 修正前ロジック（保持）
             # ------------------------------
             if hasattr(prev_obj, "is_alive") and hasattr(current_obj, "is_alive"):
                 if prev_obj.is_alive is False and current_obj.is_alive is True:
@@ -249,7 +277,17 @@ class ConsistencyValidator:
                     )
 
             # ------------------------------
-            # Phase 3.1 追加: 再帰チェック（簡易2階層）
+            # 修正前（削除 → コメント化）
+            # ------------------------------
+            # if hasattr(current_obj, "is_alive") and current_obj.is_alive is False:
+            #     if hasattr(scene, "characters") and entity_id in scene.characters:
+            #         res.is_consistent = False
+            #         res.violations.append(
+            #             f"ERR_CAUSAL_005: মৃত entity {entity_id} appears in scene {scene_id}"
+            #         )
+
+            # ------------------------------
+            # 修正後（World Rule ベース）
             # ------------------------------
             related_scenes = getattr(current_obj, "related_scenes", [])
 
@@ -259,13 +297,20 @@ class ConsistencyValidator:
                 if not scene:
                     continue
 
-                # 死亡キャラがSceneに存在していないか
                 if hasattr(current_obj, "is_alive") and current_obj.is_alive is False:
-                    if hasattr(scene, "characters") and entity_id in scene.characters:
-                        res.is_consistent = False
-                        res.violations.append(
-                            f"ERR_CAUSAL_005: মৃত entity {entity_id} appears in scene {scene_id}"
-                        )
+
+                    allow_ghost = self.world_rules.get("allow_ghost_activity", False)
+                    allow_resurrection = self.world_rules.get("allow_resurrection", False)
+
+                    # ------------------------------
+                    # World Rule に基づく判定
+                    # ------------------------------
+                    if not allow_ghost:
+                        if hasattr(scene, "characters") and entity_id in scene.characters:
+                            res.is_consistent = False
+                            res.violations.append(
+                                f"ERR_WORLD_RULE_002: Dead entity {entity_id} cannot act under current world rules"
+                            )
 
 
 if __name__ == "__main__":

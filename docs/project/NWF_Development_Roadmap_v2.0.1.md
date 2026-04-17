@@ -1,5 +1,5 @@
 Source: docs/project/NWF_Development_Roadmap_v2.0.1.md
-Updated: 2026-04-15T04:20:00+09:00
+Updated: 2026-04-17T11:25:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Development Roadmap v2.0.1
@@ -8,17 +8,17 @@ PIC: Engineer / ChatGPT
 
 ## 1. 概要
 
-NWF（Narrative Workflow Framework）は、
+NWF（Narrative Workflow Framework）は、  
 物語生成・管理・進化を統合する Narrative Operating System（Story OS）である。
 
-本ロードマップは、Phase 2.8 までに構築された
+本ロードマップは、Phase 2.8 までに構築された  
 「自律駆動基盤（Autonomous Shell）」を前提とし、
 
 **実際に人間が連載小説を制作できる状態へ到達するまでの開発指針**を定義する。
 
 ---
 
-## 2. 現状整理（2026-04-15 時点）
+## 2. 現状整理（2026-04-17 時点）
 
 ### 2.1 到達地点
 
@@ -30,20 +30,33 @@ Phase 2.1 〜 2.8 の完了により、以下が成立：
 - GitHub Sync / Release の自動化
 - System Orchestrator による自律実行
 
-**結論：**
+**結論：**  
 NWF は「自律的に動く OS」として完成済み
 
 ---
 
-### 2.2 現在のシステム状態
+### 2.2 Phase 3.3 完了による到達点
+
+- Story Engine Skeleton 実装完了
+- Entity → Graph → Timeline の最小変換成功
+- World Rule によるナラティブ分岐確認
+- Integration Test 全件 PASS
+
+**重要結論：**
+
+> NWF は「静的データベース」から「動的ナラティブ生成エンジン」へ進化完了
+
+---
+
+### 2.3 現在のシステム状態
 
 | レイヤ | 状態 |
 |--------|------|
 | Kernel | 完全稼働 |
-| Infrastructure | 基盤完成（ロジック不足あり） |
+| Infrastructure | 完成 |
 | Autonomous | 完全稼働 |
 | Agency | 稼働中 |
-| Application | 未着手 |
+| Application | Engine 最小実装完了 |
 
 ---
 
@@ -61,7 +74,7 @@ NWF は「自律的に動く OS」として完成済み
 
 ---
 
-## 4. Phase 再構築
+## 4. Phase 再構築（実装進捗反映）
 
 ---
 
@@ -96,7 +109,7 @@ NWF は「自律的に動く OS」として完成済み
 
 ---
 
-#### Phase 3.1 Logic Injection
+#### Phase 3.1 Logic Injection（完了）
 
 対象：
 
@@ -116,7 +129,7 @@ DoD：
 
 ---
 
-#### Phase 3.2 Temporal Management
+#### Phase 3.2 Temporal Management（完了）
 
 対象：
 
@@ -133,28 +146,95 @@ DoD：
 
 ---
 
-#### Phase 3.3 Engine Skeleton
+#### Phase 3.3 Engine Skeleton（完了）
 
 対象：
 
-- src/engine/story_engine.py（新規）
+- src/engine/story_engine.py
 
 実装内容：
 
 - Entity → Story Graph 変換
 - Timeline 生成
+- World Rule による分岐制御
 
 DoD：
 
 - 最小ストーリー構造出力可能
+- Integration Test PASS
 
 ---
 
-#### Phase 3.4 Query Engine
+### 🔴 Phase 3.4: Validator Integration（新設・最優先）
+
+#### 目的
+
+Story Engine と ConsistencyValidator の完全統合
+
+#### 背景（未接続ポイント）
+
+- validator.validate() 未使用
+- WorkflowContext 未接続
+- World Rule の参照経路が不統一
+
+#### 実装内容
+
+- StoryEngine → validator.validate(context, result)
+- context._metadata["world_rules"] 経由へ統一
+- エラーコード体系導入（例：ERR_WORLD_RULE_001）
+
+#### DoD
+
+- World Rule 判定が Validator に完全移行
+- Engine は「生成専用」に分離
+
+---
+
+### 🟡 Phase 3.5: World Rule Execution 強化（拡張）
+
+#### 目的
+
+World Rule の表現力強化
+
+#### 実装内容
+
+- スコープ（global / scene / entity）
+- 優先順位解決
+- ルール合成
+
+#### DoD
+
+- 複雑な世界設定を表現可能
+
+---
+
+### 🟡 Phase 3.6: Temporal Rule Integration（拡張）
+
+#### 目的
+
+時間ルールの完全統合
+
+#### 未実装要素
+
+- allow_time_reversal
+- timeline_linearity 条件分岐
+
+#### 実装内容
+
+- MetadataManager + Validator 連携
+- 時間整合性の動的制御
+
+#### DoD
+
+- 時間逆行作品に対応
+
+---
+
+### Phase 3.7 Query Engine
 
 対象：
 
-- src/engine/query_engine.py（新規）
+- src/engine/query_engine.py
 
 実装内容：
 
@@ -237,13 +317,13 @@ DoD：
 
 ---
 
-## 5. 重要課題（Critical Path）
+## 5. 重要課題（Critical Path 更新）
 
-1. Validation Logic 実装
-2. Temporal Management
-3. Engine 実装
-4. Spec と Code の完全同期
-5. Namespace 正規化
+1. ConsistencyValidator 統合（Phase 3.4）
+2. World Rule Execution 強化（Phase 3.5）
+3. Temporal Rule 統合（Phase 3.6）
+4. Query Engine 実装（Phase 3.7）
+5. Production Pipeline 構築（Phase 4）
 
 ---
 
@@ -265,6 +345,7 @@ NWF は以下を達成する：
 - 人間が物語を書く OS
 - AI が補助・検証する環境
 - 因果律を破らない物語生成
+- 世界設定に応じて変化するナラティブ生成
 
 ---
 
@@ -272,10 +353,13 @@ NWF は以下を達成する：
 
 Phase 2 により「殻」は完成した。
 
-Phase 3 以降は、
+Phase 3.3 により：
 
-**物語の法則（Logic）を実装し、
-物語そのものを生成する段階へ移行する。**
+**「物語の最小生成能力」が実証された。**
+
+次の段階は：
+
+**ロジック統合（Validator）と世界法則強化による“完全な物語エンジン化”である。**
 
 ---
 

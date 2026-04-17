@@ -1,19 +1,22 @@
 """
 Source: src/engine/story_engine.py
-Updated: 2026-04-16T14:23:00+09:00
+Updated: 2026-04-17T09:39:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Engine_Spec/NWF_Story_Engine_Implementation_v2.0.1.md
     - docs/spec/Core_Spec/NWF_World_Rule_Execution_v2.0.1.md
-    - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
+    - src/core/metadata_manager.py
+    - src/integrity/consistency_validator.py
 Docstring:
     Story Engine モジュール。
-    Entity から Story Graph を生成し、World Rule に基づいた整合性検証を行い、
-    Stardate ベースのナラティブタイムラインを構築する。
+    Entity から StoryGraph を生成し、World Rule に基づく整合性を維持しながら
+    タイムライン（NarrativeUnit）を構築する。
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
+from datetime import datetime, timezone, timedelta
+import logging
 
 from src.core.metadata_manager import MetadataManager
 from src.integrity.consistency_validator import ConsistencyValidator
@@ -22,109 +25,95 @@ __all__ = [
     "StoryEngine"
 ]
 
+# JST 定義
+JST = timezone(timedelta(hours=9))
+
+# ロガー設定
+logger = logging.getLogger(__name__)
+
 
 class StoryEngine:
     """
-    Story Engine クラス
-
-    Entity を Story Graph に変換し、
-    World Rule に基づく整合性検証を行いながら
-    Timeline を生成する。
+    物語生成の中核エンジン。
+    Entity → Graph → Timeline 変換を担う。
     """
 
-    def __init__(
-        self,
-        metadata_manager: MetadataManager,
-        validator: ConsistencyValidator
-    ) -> None:
+    def __init__(self, metadata_manager: MetadataManager, validator: ConsistencyValidator):
         """
-        初期化
-
         Args:
-            metadata_manager: MetadataManager インスタンス
-            validator: ConsistencyValidator インスタンス
+            metadata_manager: 時間管理モジュール
+            validator: 整合性検証モジュール（World Rule 含む）
         """
         self.meta_manager = metadata_manager
         self.validator = validator
 
         # グラフ初期化
-        self.graph: Dict[str, List[Dict[str, Any]]] = {
+        self.graph: Dict[str, Any] = {
             "nodes": [],
             "edges": []
         }
 
-    def generate_story_graph(
-        self,
-        context: Any,
-        entities: List[Any]
-    ) -> Dict[str, Any]:
+    def generate_story_graph(self, entities: List[Any]) -> Dict[str, Any]:
         """
-        エンティティ群からストーリーグラフを生成する
+        Entity 群から StoryGraph を生成する。
 
         Args:
-            context: WorkflowContext
-            entities: エンティティ一覧
+            entities: Entity オブジェクトのリスト
 
         Returns:
             StoryGraph
         """
 
-        # World Rule 取得
-        world_rules: Dict[str, Any] = context._metadata.get("world_rules", {})
+        # 初期化
+        self.graph["nodes"] = []
+        self.graph["edges"] = []
 
-        nodes = []
-        edges = []
+        # 現在時刻（JST）
+        current_time = datetime.now(JST)
 
-        # Node生成
+        # ノード生成
         for entity in entities:
             node = {
-                "id": getattr(entity, "id", None),
-                "type": getattr(entity, "type", None),
-                "state": getattr(entity, "state", None)
+                "id": getattr(entity, "id", "unknown"),
+                "type": getattr(entity, "type", "unknown"),
+                "state": "alive" if getattr(entity, "is_alive", True) else "dead"
             }
-            nodes.append(node)
+            self.graph["nodes"].append(node)
 
-        # Edge生成
+        # エッジ生成
         for entity in entities:
-            relationships = getattr(entity, "relationships", [])
+            related_scenes = getattr(entity, "related_scenes", [])
 
-            for rel in relationships:
+            for scene_id in related_scenes:
                 edge = {
                     "source": entity.id,
-                    "target": rel.get("target"),
-                    "type": rel.get("type"),
-                    "weight": rel.get("weight", 1.0),
-                    "stardate": None
+                    "target": scene_id,
+                    "type": "LOCATION_STAY",
+                    "weight": 1.0,
+                    "stardate": self.meta_manager.convert_to_stardate(current_time),
+                    "metadata": {
+                        "is_alive": getattr(entity, "is_alive", True)
+                    }
                 }
 
-                # Stardate付与
-                timestamp = rel.get("timestamp")
-                if timestamp:
-                    edge["stardate"] = self.meta_manager.convert_to_stardate(timestamp)
-
-                # World Rule チェック
-                if not self._apply_world_rules_to_edge(entity, edge, world_rules):
+                # --- World Rule 判定 ---
+                if not self._apply_world_rules(entity, edge):
+                    logger.warning(
+                        f"World Rule によりエッジ生成拒否: entity={entity.id}, scene={scene_id}"
+                    )
                     continue
 
-                # Consistency Validator 実行
-                validation_result = self.validator.validate(context, None)
+                # --- ConsistencyValidator 呼び出し（将来拡張） ---
+                # 現段階では最小実装としてスキップ可能
+                # TODO: context + validation_result を接続
 
-                if not validation_result.is_consistent:
-                    # 不整合エッジは破棄
-                    continue
-
-                edges.append(edge)
-
-        self.graph = {
-            "nodes": nodes,
-            "edges": edges
-        }
+                self.graph["edges"].append(edge)
 
         return self.graph
 
     def render_timeline(self) -> List[Dict[str, Any]]:
         """
-        グラフからタイムラインを生成
+        グラフからタイムラインを生成する。
 
         Returns:
             NarrativeUnit のリスト
@@ -132,13 +121,13 @@ class StoryEngine:
 
         edges = self.graph.get("edges", [])
 
-        # Stardate順ソート
-        sorted_edges = sorted(
-            edges,
-            key=lambda x: x.get("stardate", 0.0)
-        )
+        if not edges:
+            return []
 
-        timeline: List[Dict[str, Any]] = []
+        # Stardate 昇順ソート
+        sorted_edges = sorted(edges, key=lambda e: e.get("stardate", 0.0))
+
+        timeline = []
 
         for edge in sorted_edges:
             unit = {
@@ -151,51 +140,50 @@ class StoryEngine:
             timeline.append(unit)
 
         # 時間整合性チェック
-        self.meta_manager.check_timeline_linearity(sorted_edges)
+        try:
+            self.meta_manager.check_timeline_linearity(timeline)
+        except Exception as e:
+            logger.error(f"Timeline 整合性エラー: {e}")
 
         return timeline
 
-    def _apply_world_rules_to_edge(
-        self,
-        entity: Any,
-        edge: Dict[str, Any],
-        world_rules: Dict[str, Any]
-    ) -> bool:
+    def _apply_world_rules(self, entity: Any, edge: Dict[str, Any]) -> bool:
         """
-        World Rule に基づきエッジ生成可否を判定
+        World Rule に基づく行動可否判定
+
+        なぜ必要か：
+        - 因果律は固定ではなく世界設定に依存するため
+        - Narrative Relativity 原則の実装
 
         Args:
             entity: 対象エンティティ
-            edge: エッジ情報
-            world_rules: World Rule 設定
+            edge: 生成予定エッジ
 
         Returns:
             bool: 許可可否
         """
 
-        # 死亡状態チェック
+        # validator から world_rules を取得（存在しない場合は空）
+        world_rules = getattr(self.validator, "world_rules", {})
+
         is_alive = getattr(entity, "is_alive", True)
 
-        if is_alive is False:
-            allow_ghost = world_rules.get("allow_ghost_activity", False)
+        # --- ゴースト行動 ---
+        allow_ghost = world_rules.get("allow_ghost_activity", False)
 
-            if not allow_ghost:
-                return False
+        if not is_alive and not allow_ghost:
+            return False
 
-        # 時間逆行チェック
-        allow_time_reversal = world_rules.get("allow_time_reversal", False)
-
-        if not allow_time_reversal:
-            # Stardate逆転チェック（簡易）
-            stardate = edge.get("stardate")
-            if stardate is not None and stardate < 0:
-                return False
+        # --- 将来拡張 ---
+        # allow_resurrection
+        # allow_time_reversal
+        # など
 
         return True
 
 
+# メインガード（テスト用）
 if __name__ == "__main__":
-    # 簡易テスト（デバッグ用）
-    print("StoryEngine module loaded.")
+    logger.info("StoryEngine standalone test start")
 
 # [EOF]

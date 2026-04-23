@@ -1,5 +1,5 @@
 Source: docs/project/NWF_Development_Roadmap_v2.0.1.md
-Updated: 2026-04-17T11:25:00+09:00
+Updated: 2026-04-23T09:34:00+09:00  ← ★更新（Phase 3.4 完了反映）
 PIC: Engineer / ChatGPT
 
 # NWF Development Roadmap v2.0.1
@@ -18,7 +18,7 @@ NWF（Narrative Workflow Framework）は、
 
 ---
 
-## 2. 現状整理（2026-04-17 時点）
+## 2. 現状整理（2026-04-23 時点）
 
 ### 2.1 到達地点
 
@@ -48,6 +48,22 @@ NWF は「自律的に動く OS」として完成済み
 
 ---
 
+### ★追記：Phase 3.4 完了による到達点（今回追加）
+
+（※既存構造は削除せず、拡張として追記）
+
+- StoryEngine と ConsistencyValidator の完全統合完了
+- CRITICAL エラー発生時の Engine による即時停止（フェイルセーフ）の確立
+- Validation Pipeline（Validator → Adapter → Engine）の非破壊・単方向伝播の保証
+- Engine が「最終意思決定者（Gatekeeper）」として確立
+
+**重要結論（拡張）：**
+
+> NWF は「安全装置（Validation Pipeline）を備えた完全な物語エンジン」へと進化完了。  
+> データの矛盾や因果律崩壊を未然に防ぐ自律防衛機構が実稼働に入った。
+
+---
+
 ### 2.3 現在のシステム状態
 
 | レイヤ | 状態 |
@@ -56,7 +72,7 @@ NWF は「自律的に動く OS」として完成済み
 | Infrastructure | 完成 |
 | Autonomous | 完全稼働 |
 | Agency | 稼働中 |
-| Application | Engine 最小実装完了 |
+| Application | Engine（Validator統合完了） |
 
 ---
 
@@ -165,85 +181,207 @@ DoD：
 
 ---
 
-### 🔴 Phase 3.4: Validator Integration（新設・最優先）
+### Phase 3.4: Validator Integration（完了）
 
-#### 目的
+#### 実装内容・成果
 
-Story Engine と ConsistencyValidator の完全統合
+- StoryEngine に `evaluate_validation_results()` を実装
+- Validator → Adapter → Engine の完全接続確立
+- CRITICAL 伝播時の即時停止（RuntimeError）を保証
+- Monotonicity Rule の完全達成
+- ValidationResult 非破壊性の保証
 
-#### 背景（未接続ポイント）
+#### 修正理由（旧仕様との差分）
 
-- validator.validate() 未使用
-- WorkflowContext 未接続
-- World Rule の参照経路が不統一
-
-#### 実装内容
-
-- StoryEngine → validator.validate(context, result)
-- context._metadata["world_rules"] 経由へ統一
-- エラーコード体系導入（例：ERR_WORLD_RULE_001）
-
-#### DoD
-
-- World Rule 判定が Validator に完全移行
-- Engine は「生成専用」に分離
+- 旧設計では Engine が Validator に依存していなかった
+- 判定責務が分散していた（設計違反）
+- → Engine に停止権限を集中（NWF_Error_Model 準拠）
 
 ---
 
-### 🟡 Phase 3.5: World Rule Execution 強化（拡張）
+### 🟡 Phase 3.5: World Rule Execution 強化（次フェーズ）
+
+※重要設計方針：
+
+- phase 3.5 の実質的設計前に Validator の分割設計を行う
+- Validatorは「評価オーケストレーター」であり合成だけをする。ロジックは以下に具体的に示す通りに Evaluator にのみ分割して存在する
+  - RuleEvaluator（World）: World Rule の評価ロジック（純関数）
+  - TemporalEvaluator: Temporal Rule の評価ロジック（純関数）
+  - EscalationEvaluator: Escalation Rule の評価ロジック（純関数）
+- Validator の　Rule Scope / Priority 対応
+- World Rule の評価ロジックは Validator に集約する
+- Engine は評価結果を「解釈せず」最終判断のみ行う
+- Engine は ValidationResult の内容（message / error_code）に依存した分岐を行ってはならない
+- Engine が参照してよいのは severity のみとする
+- Engine を分離（Phase 3.4 での設計を壊さずに拡張）: 
+  StoryEngine
+   ├─ GenerationStrategy（生成ロジック）
+   └─ EvaluationGate（Phase 3.4 で実装）
+- Rule 判定の二重実装を禁止（DRY + 責務分離）
+- Validator は Engine の状態（実行結果・生成物）に依存してはならない
+
+#### Phase 3.5 準備
+
+##### 1. Validator分割のインターフェース定義
+
+```python
+class RuleEvaluator:
+    def evaluate(context, entity) -> List[ValidationResult]
+
+class TemporalEvaluator:
+    def evaluate(context, entity) -> List[ValidationResult]
+
+class EscalationEvaluator:
+    def evaluate(results) -> List[ValidationResult]
+```
+
+#### 2. ValidationResultの拡張準備
+
+```python
+trace_id: str
+span_id: str
+source: str  # validator / temporal / escalation
+```
+
+##### 3. Ruleデータ構造（最初の1タスク）
+
+Rule Scope のデータ構造定義
+
+```python
+{
+    "rule_id": "...",
+    "scope": "global | scene | entity",
+    "priority": int,
+    "condition": ...,
+    "action": ...
+}
+```
 
 #### 目的
 
-World Rule の表現力強化
+World Rule の表現力と適用精度を拡張する
 
-#### 実装内容
+#### 対象
 
-- スコープ（global / scene / entity）
-- 優先順位解決
-- ルール合成
+- src/integrity/consistency_validator.py
+- src/workflow/workflow_context.py
+- src/engine/story_engine.py
+
+#### 内容
+
+- Rule スコープ導入（global / scene / entity）
+- Rule 優先順位（priority）解決
+- Rule 合成（multiple rule resolution）
+- Context.metadata 経由での統一参照
 
 #### DoD
 
-- 複雑な世界設定を表現可能
+- 複数ルール競合時の決定論的解決
+- Validator による完全検証
+- Integration Test PASS
 
 ---
 
-### 🟡 Phase 3.6: Temporal Rule Integration（拡張）
+### 🟡 Phase 3.6: Temporal Rule Integration
+
+- Validater の時間逆行対応
+- Temporal Rule は Validation Pipeline に統合される
+- 時間矛盾は ValidationResult として返却される
+- Engine は時間矛盾を「直接判定しない」
+- 時間の単調性（monotonic progression）はデフォルトとする
+- allow_time_reversal=True の場合のみ例外的に非単調を許可
 
 #### 目的
 
-時間ルールの完全統合
+時間軸の制御と非線形ナラティブ対応
 
-#### 未実装要素
+#### 対象
 
-- allow_time_reversal
+- src/core/metadata_manager.py
+- src/integrity/consistency_validator.py
+
+#### 内容
+
+- allow_time_reversal の実装
 - timeline_linearity 条件分岐
-
-#### 実装内容
-
-- MetadataManager + Validator 連携
-- 時間整合性の動的制御
+- 時間矛盾の動的検出
 
 #### DoD
 
-- 時間逆行作品に対応
+- 時間逆行シナリオが生成可能
+- 時系列矛盾が CRITICAL で検出される
 
 ---
 
 ### Phase 3.7 Query Engine
 
-対象：
+#### 対象
 
 - src/engine/query_engine.py
 
-実装内容：
+#### 内容
 
-- データ検索
+- Entity 検索
 - 条件抽出
+- Graph クエリ
 
-DoD：
+#### DoD
 
-- 任意条件での検索成功
+- 任意条件検索成功
+- パフォーマンス要件クリア
+
+---
+
+### 🟡 Phase 3.8: Observability & Error Escalation（新設）
+
+※重要制約：
+
+- Validator のログ対応（ログ地獄）
+- ログ対応として phase 3.8 の実質的設計前にログポリシーと保存戦略を策定する
+  - ログポリシー: 
+    - CRITICAL → フルログ
+    - ERROR    → サマリ + 件数
+    - WARNING  → 集約
+    - INFO     → オプション
+  - 保存戦略: 
+    - hot log   : 直近N件
+    - cold log  : 圧縮保存
+- エラー昇格（ERROR → CRITICAL）は許可される
+- Escalationは独立レイヤーに固定
+  - Validator → EscalationManager → Engine
+- Engine は昇格ロジックを持たない
+- エラー降格（CRITICAL → ERROR）は禁止（Monotonicity Rule）
+- Trace ID は2層にする（分散トレース的構造）: 
+  - trace_id      = workflow単位
+  - span_id       = 処理単位（validator / engine / etc）
+- ValidationResult は必ず Trace ID を継承する
+- ERROR の扱い: 
+  - カウント単位（entity / context / global）
+  - 時間窓（1 transaction / sliding window）
+  - 閾値（例: 3回）
+
+#### 目的
+
+Validation と Engine の可観測性と制御強化
+
+#### 対象
+
+- src/core/audit_logger.py
+- src/integrity/validation_result.py
+- src/engine/story_engine.py
+
+#### 内容
+
+- ValidationResult の JSON ログ化
+- Entity ID / timestamp / rule を記録
+- ERROR 蓄積による CRITICAL 昇格
+- Trace ID による分散トレース
+
+#### DoD
+
+- 全 ValidationResult が永続化される
+- エラー昇格テスト PASS
+- Audit Log から完全再現可能
 
 ---
 
@@ -252,6 +390,20 @@ DoD：
 #### 目的
 
 実際の小説生成を可能にする
+
+#### 対象
+
+- Scene Pipeline
+- Episode Builder
+
+#### 内容
+
+- Draft → Review → Release
+- AI Rewrite Loop
+
+#### DoD
+
+- 1話生成成功
 
 ---
 
@@ -319,11 +471,31 @@ DoD：
 
 ## 5. 重要課題（Critical Path 更新）
 
+### 🔴 完了済
 1. ConsistencyValidator 統合（Phase 3.4）
-2. World Rule Execution 強化（Phase 3.5）
-3. Temporal Rule 統合（Phase 3.6）
-4. Query Engine 実装（Phase 3.7）
+
+### ✅ 今後の課題
+
+1. World Rule Execution 強化（Phase 3.5）※現在地
+   - 理由：物語分岐の本体ロジックであり、Engineの出力品質を決定するため
+2. Temporal Rule 統合（Phase 3.6）
+   - 理由：時間軸の制御と非線形ナラティブ対応
+3. Query Engine 実装（Phase 3.7）
+   - 理由：Entity検索・条件抽出・Graphクエリ
+4. Observability & Error Escalation（Phase 3.8）
+   - 理由：ValidationとEngineの可観測性と制御強化
 5. Production Pipeline 構築（Phase 4）
+   - 理由：実際の小説生成を可能にする
+
+### 各課題の順序依存
+
+1. Phase 3.5（World Rule）
+   ↓
+2. Phase 3.6（Temporal）
+   ↓
+3. Phase 3.7（Query）
+   ↓
+4. Phase 3.8（Observability）
 
 ---
 
@@ -349,17 +521,25 @@ NWF は以下を達成する：
 
 ---
 
-## 8. 結論
+## 8. 結論（更新）
 
-Phase 2 により「殻」は完成した。
+### 🔴 修正前（保持）
 
-Phase 3.3 により：
+Phase 2 により「殻」は完成した。  
+Phase 3.3 により「最小生成能力」が実証された。
 
-**「物語の最小生成能力」が実証された。**
+---
+
+### ✅ 修正後（拡張）
+
+Phase 2 により「自律駆動の殻」は完成した。  
+Phase 3.3 により「物語の最小生成能力」が実証され、  
+Phase 3.4 により「因果律を担保する絶対的な安全装置（Validator統合）」が組み込まれた。
+さらに、Engine は「生成器」ではなく「意思決定中枢」として再定義された。
 
 次の段階は：
 
-**ロジック統合（Validator）と世界法則強化による“完全な物語エンジン化”である。**
+**確立された堅牢な基盤の上で、複雑な「世界法則（World Rule）」と「時間操作（Temporal）」を解き放つことである。**
 
 ---
 

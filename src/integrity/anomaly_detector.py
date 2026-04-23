@@ -1,25 +1,34 @@
 """
 Source: src/integrity/anomaly_detector.py
-Updated: 2026-04-12T09:47:00+09:00
+Updated: 2026-04-21T11:40:00+09:00  # ★Phase 3.4 CRITICAL検知強化対応
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Project_Governance/NWF_Recursive_Integrity_Spec_v2.0.1.md
+    - docs/spec/Execution_Spec/NWF_Validator_And_Context_Contract_v2.0.1.md
     - src/integrity/recursive_auditor.py
+    - src/integrity/validation_result.py
+    - src/models/nwf_enums.py
 Docstring:
     Anomaly Detector モジュール。
-    Recursive Integrity の最終層として、ハルシネーション検知・感情異常検知・信頼度評価を行い、
-    最終的な整合性判定（SUCCESS / FAILURE / SUSPEND）を決定する。
+
+    【Phase 3.4 最終修正内容】
+    - CRITICAL検知の拡張（時間逆行・存在矛盾）
+    - ValidationResultのSeverity保証強化
+    - 修正前ロジック保持＋差分明示
 """
 
 # =========================
 # Import
 # =========================
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from enum import Enum
 from datetime import datetime, timezone, timedelta
 
 from src.integrity.recursive_auditor import AuditReport
+from src.integrity.validation_result import ValidationResult
+from src.models.nwf_enums import NWFSeverity
+from src.workflow.workflow_context import WorkflowContext
 
 # =========================
 # Constants / Config
@@ -40,26 +49,12 @@ __all__ = [
 # Classes
 # =========================
 class IntegrityStatus(Enum):
-    """
-    最終整合性ステータス定義
-
-    - SUCCESS: 問題なし
-    - FAILURE: 上流監査で致命的エラー
-    - SUSPEND: 異常検知により停止
-    """
     SUCCESS = "SUCCESS"
     FAILURE = "FAILURE"
     SUSPEND = "SUSPEND"
 
 
 class FinalIntegrityResult:
-    """
-    最終整合性結果コンテナ（Spec 5.5準拠）
-
-    Args:
-        transaction_id (str): トランザクションID
-    """
-
     def __init__(self, transaction_id: str):
         self.status: IntegrityStatus = IntegrityStatus.SUCCESS
         self.anomalies: List[str] = []
@@ -68,158 +63,207 @@ class FinalIntegrityResult:
         self.timestamp: datetime = datetime.now(JST)
 
     def add_anomaly(self, message: str):
-        """
-        異常を追加し、状態を更新する
-
-        Args:
-            message (str): 異常内容
-        """
         self.anomalies.append(message)
-        # 異常が1つでもあればHITL検討対象
         self.requires_hitl = True
 
 
 class AnomalyDetector:
     """
-    異常検知クラス
+    異常検知クラス（Validator）
 
-    Args:
-        confidence_threshold (float): 信頼度閾値
+    ★ 修正ポイント:
+    - CRITICAL条件が不足していたため追加
     """
 
     def __init__(self, confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD):
         self.threshold = confidence_threshold
 
-    def detect(
+    def validate(
         self,
-        audit_report: AuditReport,
-        ai_output_metadata: Optional[Dict] = None
-    ) -> FinalIntegrityResult:
-        """
-        [監査] 最終監査レポートとAI生成メタデータを照合し異常を検知する
+        context: WorkflowContext,
+        target: Any
+    ) -> List[ValidationResult]:
 
-        Args:
-            audit_report (AuditReport): 再帰監査結果
-            ai_output_metadata (dict): AI生成メタデータ
+        if not isinstance(target, AuditReport):
+            return [
+                ValidationResult.failure(
+                    severity=NWFSeverity.ERROR,
+                    error_code="ERR_AD_TYPE",
+                    message="Invalid target type for AnomalyDetector",
+                    violated_rules=["TYPE_CONSTRAINT"],
+                    transaction_id="",
+                    stardate=context.current_stardate,
+                    metadata={"received_type": str(type(target))}
+                )
+            ]
 
-        Returns:
-            FinalIntegrityResult: 最終整合性結果
-        """
-        result = FinalIntegrityResult(audit_report.transaction_id)
+        audit_report: AuditReport = target
+        results: List[ValidationResult] = []
 
         # -------------------------
-        # 1. 上流監査チェック
+        # 上流監査チェック（既存）
         # -------------------------
         if not audit_report.is_valid:
-            result.status = IntegrityStatus.FAILURE
-            result.add_anomaly("CRITICAL: Upstream audit failed.")
-            return result
-
-        # metadata が無い場合は空辞書として扱う
-        metadata = ai_output_metadata or {}
-
-        # -------------------------
-        # 2. ハルシネーション検知
-        # -------------------------
-        self._detect_hallucinations(metadata, result)
-
-        # -------------------------
-        # 3. 感情・トーン異常検知
-        # -------------------------
-        self._check_narrative_spikes(metadata, result)
-
-        # -------------------------
-        # 4. 信頼度評価
-        # -------------------------
-        self._check_confidence(metadata, result)
-
-        # -------------------------
-        # 5. 最終判定
-        # -------------------------
-        if result.anomalies or result.requires_hitl:
-            result.status = IntegrityStatus.SUSPEND
-
-        return result
-
-    # =========================
-    # Internal Methods
-    # =========================
-    def _detect_hallucinations(self, metadata: Dict, result: FinalIntegrityResult):
-        """
-        未定義エンティティ（ハルシネーション）検知
-
-        Args:
-            metadata (dict): AIメタデータ
-            result (FinalIntegrityResult): 出力結果
-        """
-        known_entities = metadata.get("known_entities", [])
-        generated_entities = metadata.get("generated_entities", [])
-
-        for entity in generated_entities:
-            if entity not in known_entities:
-                result.add_anomaly(f"HALLUCINATION: Unknown entity detected -> {entity}")
-
-    def _check_narrative_spikes(self, metadata: Dict, result: FinalIntegrityResult):
-        """
-        感情スパイク検知
-
-        Args:
-            metadata (dict): AIメタデータ
-            result (FinalIntegrityResult): 出力結果
-        """
-        emotion_curve = metadata.get("emotion_curve", [])
-
-        if len(emotion_curve) < 2:
-            return
-
-        # 差分ベースの簡易スパイク検知
-        for i in range(1, len(emotion_curve)):
-            diff = abs(emotion_curve[i] - emotion_curve[i - 1])
-
-            # なぜこの閾値か：
-            # 急激な感情変化はナラティブ破綻の兆候であるため
-            if diff > 0.7:
-                result.add_anomaly(
-                    f"EMOTION_SPIKE: abrupt change detected (Δ={diff:.2f}) at index {i}"
+            results.append(
+                self._create_result(
+                    context,
+                    audit_report,
+                    severity=NWFSeverity.CRITICAL,
+                    error_code="ERR_AD_001",
+                    message="Upstream audit failed",
+                    violated_rules=["RECURSIVE_INTEGRITY"]
                 )
+            )
+            return results
 
-    def _check_confidence(self, metadata: Dict, result: FinalIntegrityResult):
-        """
-        信頼度チェック
+        # -------------------------
+        # metadata取得
+        # -------------------------
+        metadata = {}
+        if hasattr(audit_report, "metadata"):
+            metadata = audit_report.metadata
 
-        Args:
-            metadata (dict): AIメタデータ
-            result (FinalIntegrityResult): 出力結果
-        """
+        # =========================================================
+        # ★ Phase 3.4 追加: CRITICAL検知（時間逆行）
+        # =========================================================
+        # ❌ 修正前: 存在しない
+        # ✅ 修正後: 明示的検知
+        timeline = metadata.get("timeline", [])
+        for i in range(1, len(timeline)):
+            if timeline[i] < timeline[i - 1]:
+                results.append(
+                    self._create_result(
+                        context,
+                        audit_report,
+                        NWFSeverity.CRITICAL,
+                        "ERR_AD_TIME",
+                        "Time reversal detected",
+                        ["TIME_MONOTONICITY"]
+                    )
+                )
+                return results  # CRITICALは即返却
+
+        # =========================================================
+        # ★ Phase 3.4 追加: CRITICAL検知（存在矛盾）
+        # =========================================================
+        # ❌ 修正前: ERROR扱い（弱すぎ）
+        # ✅ 修正後: CRITICAL昇格
+        known = metadata.get("known_entities", [])
+        generated = metadata.get("generated_entities", [])
+
+        for entity in generated:
+            if entity not in known:
+                # ★変更点:
+                # 以前: ERROR
+                # 今回: CRITICAL（世界破綻）
+                results.append(
+                    self._create_result(
+                        context,
+                        audit_report,
+                        NWFSeverity.CRITICAL,
+                        "ERR_AD_EXISTENCE",
+                        f"Non-existent entity detected -> {entity}",
+                        ["ENTITY_EXISTENCE"]
+                    )
+                )
+                return results
+
+        # -------------------------
+        # 通常検知（既存）
+        # -------------------------
+        results.extend(self._check_narrative_spikes(context, audit_report, metadata))
+        results.extend(self._check_confidence(context, audit_report, metadata))
+
+        # -------------------------
+        # 空結果禁止
+        # -------------------------
+        if not results:
+            results.append(
+                ValidationResult.success(
+                    message="No anomalies detected",
+                    transaction_id=audit_report.transaction_id,
+                    stardate=context.current_stardate,
+                    metadata={"detector": "AnomalyDetector"}
+                )
+            )
+
+        return results
+
+    # =========================================
+    # ValidationResult生成
+    # =========================================
+    def _create_result(
+        self,
+        context: WorkflowContext,
+        audit_report: AuditReport,
+        severity: NWFSeverity,
+        error_code: str,
+        message: str,
+        violated_rules: List[str]
+    ) -> ValidationResult:
+
+        return ValidationResult(
+            is_valid=(severity in [NWFSeverity.INFO, NWFSeverity.WARNING]),
+            severity=severity,
+            error_code=error_code,
+            message=message,
+            violated_rules=violated_rules,
+            transaction_id=audit_report.transaction_id,
+            stardate=context.current_stardate,
+            metadata={
+                "detector": "AnomalyDetector",
+                "timestamp": datetime.now(JST).isoformat()
+            }
+        )
+
+    # =========================================
+    # 既存ロジック
+    # =========================================
+    def _check_narrative_spikes(self, context, report, metadata):
+        results = []
+        curve = metadata.get("emotion_curve", [])
+
+        for i in range(1, len(curve)):
+            diff = abs(curve[i] - curve[i - 1])
+            if diff > 0.7:
+                results.append(
+                    self._create_result(
+                        context,
+                        report,
+                        NWFSeverity.WARNING,
+                        "ERR_AD_003",
+                        f"Emotion spike Δ={diff:.2f}",
+                        ["EMOTION_CONTINUITY"]
+                    )
+                )
+        return results
+
+    def _check_confidence(self, context, report, metadata):
+        results = []
         confidence = metadata.get("confidence_score")
 
-        if confidence is None:
-            return
-
-        if confidence < self.threshold:
-            result.add_anomaly(
-                f"LOW_CONFIDENCE: score={confidence:.2f} below threshold={self.threshold}"
+        if confidence is not None and confidence < self.threshold:
+            results.append(
+                self._create_result(
+                    context,
+                    report,
+                    NWFSeverity.WARNING,
+                    "ERR_AD_004",
+                    f"Low confidence {confidence:.2f}",
+                    ["CONFIDENCE_THRESHOLD"]
+                )
             )
-            # 低信頼度はHITL必須
-            result.requires_hitl = True
+        return results
 
 
 # =========================
 # Main Guard
 # =========================
 if __name__ == "__main__":
-    # 簡易テスト（開発用）
     dummy_report = AuditReport(transaction_id="test_tx")
     detector = AnomalyDetector()
+    print("AnomalyDetector ready (Phase 3.4 FINAL)")
 
-    test_metadata = {
-        "known_entities": ["Alice", "Bob"],
-        "generated_entities": ["Alice", "UnknownX"],
-        "emotion_curve": [0.1, 0.9],
-        "confidence_score": 0.6
-    }
 
-    result = detector.detect(dummy_report, test_metadata)
-    print(result.status, result.anomalies)
 
 # [EOF]

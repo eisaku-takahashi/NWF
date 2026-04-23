@@ -1,5 +1,5 @@
 Source: docs/spec/Execution_Spec/NWF_Validation_System_v2.0.1.md
-Updated: 2026-04-06T12:39:00+09:00
+Updated: 2026-04-22T11:53:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Validation System v2.0.1
@@ -380,6 +380,247 @@ Validation System Roles:
 - Story Integrity Assurance
 
 Validation System は NWF Kernel、Engine System、Execution Pipeline、Error Model、Audit System と連携し、Story OS 全体の整合性と説明責任を保証する。
+
+---
+
+## 11. ValidationResult 集約ルール（Phase 3.4 拡張・修正）
+
+### 11.1 背景（不具合の発生原因）
+
+従来の実装では、複数の ValidationResult を集約する際に以下のような問題が存在した。
+
+- all() や boolean ベースで is_valid を評価
+- severity が間接的に上書き・消失
+- CRITICAL が WARNING / INFO に劣化する
+
+これは以下の問題を引き起こした。
+
+- Engine が停止すべきケースで継続する
+- Error Model が起動しない
+- Audit の信頼性が崩壊する
+
+---
+
+### 11.2 【重要修正】旧仕様の扱い（削除ではなく無効化）
+
+以下の旧仕様は削除せず「仕様外」として保持する。
+
+旧仕様:
+- 任意ロジックによる集約
+- is_valid ベースの判定
+- boolean圧縮
+
+理由:
+- 過去の実装との互換性検証のため
+- Audit / Debug 時の比較参照のため
+
+ただしこれらは現在の仕様では使用禁止とする。
+
+---
+
+### 11.3 新ルール（必須）
+
+#### ■ ルール1：merge() のみ使用可能
+
+ValidationResult の集約は ValidationResult.merge() のみで行う。
+
+#### ■ ルール2：最大Severity保持（Monotonicity適用）
+
+CRITICAL > ERROR > WARNING > INFO
+
+最も高いSeverityを必ず保持する。
+
+#### ■ ルール3：Severity圧縮禁止
+
+boolean変換禁止  
+is_valid は補助情報
+
+#### ■ ルール4：Adapterでの再生成禁止
+
+変換のみ許可  
+意味変更禁止
+
+---
+
+## 12. Severity Monotonicity Rule（Validation System適用・新規追加）
+
+### 12.1 追加理由
+
+Error Model 側で導入された Monotonicity Rule を Validation System にも適用する必要があるため。
+
+また、Phase 3.4 において以下の問題が確認された：
+
+- CRITICAL が途中で消失する
+- Adapter / Auditor における情報破壊
+- Pipeline が非可逆構造になっている
+
+---
+
+### 12.2 ルール定義
+
+一度発生した Severity は Validation Pipeline 内で減衰してはならない。
+
+---
+
+### 12.3 適用範囲
+
+- Validator
+- Adapter
+- Auditor
+- Engine
+
+---
+
+### 12.4 禁止事項
+
+- CRITICAL → ERROR / WARNING / INFO
+- ERROR → WARNING / INFO
+- WARNING → INFO
+- 集約による downgrade
+- 型変換時の誤変換
+
+---
+
+### 12.5 許可事項
+
+- Severity の昇格のみ許可
+
+---
+
+### 12.6 実装指針
+
+- Pass-through を基本とする
+- merge時のみ最大Severityを選択
+
+---
+
+### 12.7 設計上の意味
+
+旧:
+集約型（情報破壊構造）
+
+新:
+伝播型（情報非破壊構造）
+
+---
+
+## 13. Severity伝播保証ルール（強化版）
+
+### 13.1 修正前
+
+- 一部層で変換・圧縮が発生
+- CRITICAL消失の可能性あり
+
+---
+
+### 13.2 修正後
+
+- 完全な非破壊伝播を保証
+
+---
+
+### 13.3 追加明文化
+
+Severity は以下の役割を持つ：
+
+- 制御信号（Control Signal）
+- Engine停止トリガー
+- Rollbackトリガー
+- Audit重要度決定要素
+
+---
+
+## 14. ERROR挙動仕様（明確化・修正履歴付き）
+
+### 14.1 旧仕様（保持）
+
+- ERRORで例外発生（実装依存）
+
+問題:
+- Self-Healing Loop破壊
+- 実装不統一
+
+---
+
+### 14.2 新仕様
+
+CRITICAL:
+- 即時停止
+- RuntimeError
+
+ERROR:
+- continue
+- 出力スキップ（Edge未生成）
+
+---
+
+### 14.3 削除理由（明示）
+
+ERROR例外化は以下の理由で無効化：
+
+- Partial Execution 不可能
+- Pipeline停止過剰
+- Validation思想違反
+
+---
+
+## 15. Validation Pipeline 非破壊設計原則（新規追加）
+
+### 15.1 定義
+
+Validation Pipeline は「情報を変換するものではなく、伝播するもの」である。
+
+---
+
+### 15.2 各層の責務
+
+Validator:
+- ValidationResult を生成する
+
+Adapter:
+- 型変換のみ行う（意味変更禁止）
+
+Auditor:
+- 監査ログを生成する（ValidationResult不変）
+
+Engine:
+- 最終判断を行う
+
+---
+
+### 15.3 禁止事項
+
+- ValidationResult の再生成
+- Severity の変更
+- 再評価ロジックの挿入
+- 集約ロジックの独自実装
+
+---
+
+## 16. まとめ（Phase 3.4 最終）
+
+本アップデートにより以下が確定：
+
+- Severity Monotonicity Rule 完全適用
+- ValidationResult 非破壊伝播
+- ERROR挙動の統一
+- Pipeline責務分離
+
+---
+
+### 最重要ルール
+
+1. Severityは減衰させるな
+2. 集約するな（merge以外禁止）
+3. ERRORは停止ではない
+
+---
+
+### 最終状態
+
+- CRITICALは必ずEngineに到達
+- Validationは完全トレーサブル
+- Self-Healing Loopが安定動作
 
 ---
 

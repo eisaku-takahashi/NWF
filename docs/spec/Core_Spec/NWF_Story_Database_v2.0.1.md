@@ -1,5 +1,5 @@
 Source: docs/spec/Core_Spec/NWF_Story_Database_v2.0.1.md
-Updated: 2026-03-21T18:47:00+09:00
+Updated: 2026-05-11T17:39:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Story Database v2.0.1
@@ -69,6 +69,109 @@ story_database/scenes/scene_010.json
 story_database/events/event_003.json  
 
 これにより Git による差分管理を容易にする。
+
+### 2.2 StoryDB Interface Specification（Phase 3.5 追記）
+
+【追記理由】
+Phase 3.5 Debug Work Plan において、
+Validator と StoryDB 間の I/F 不整合が
+Immutability Validator の誤動作原因となったため、
+StoryDB の最小必須 I/F を正式仕様として固定する。
+
+【追加仕様】
+
+StoryDB 実装は最低限以下の Interface を必須とする。
+
+```python
+get(entity_id: str) -> Optional[Entity]
+```
+
+### 2.2.1 get() の定義
+
+* 引数 `entity_id` は必ず `str`
+* StoryDB 実装内部で UUID object 等を使用していても、
+  外部 Interface は `str` に正規化する
+* Validator / Engine / Mock は
+  必ず本 Interface 経由で Entity を取得する
+* 内部辞書構造や storage layout に直接依存してはならない
+
+### 2.2.2 非存在 Entity の扱い
+
+`entity_id` に対応する Entity が存在しない場合：
+
+```python
+None
+```
+
+を返す。
+
+例：
+
+```python
+entity = story_db.get("char_001")
+
+if entity is None:
+    # Entity not found
+```
+
+### 2.2.3 Validator Compatibility Rule（Phase 3.5 追加）
+
+ConsistencyValidator は
+以下の I/F 契約に完全準拠しなければならない。
+
+```python
+target_id = str(getattr(target, "id", ""))
+previous = story_db.get(target_id)
+```
+
+【追加理由】
+
+旧実装では：
+
+* Mock DB の内部 dict に直接依存
+* UUID / str 混在
+* get() 未実装 Mock の存在
+
+によって `previous is None` が誤発生し、
+Immutability Check がスキップされる問題が存在した。
+
+本仕様追加により：
+
+* DB 実装差異
+* Mock 実装差異
+* ID 型差異
+
+を完全に吸収する。
+
+### 2.2.4 MockStoryDB Compatibility Requirement（Phase 3.5 追加）
+
+MockStoryDB を含む
+全テスト用 DB 実装も
+本 Interface に準拠しなければならない。
+
+最低要件：
+
+```python
+class MockStoryDB:
+    def __init__(self, data: dict):
+        self._data = data
+
+    def get(self, entity_id: str):
+        return self._data.get(str(entity_id))
+```
+
+【補足】
+
+これは実装例であり、
+内部構造は自由である。
+
+ただし：
+
+* `get(entity_id: str)`
+* 非存在時 `None`
+* ID の `str` 正規化
+
+は必須契約とする。
 
 ---
 
@@ -195,12 +298,54 @@ Story Database のデータ整合性を維持するため、
 
 すべての Entity ID は Story Database 内で一意でなければならない。
 
+【Phase 3.5 追記】
+
+Entity ID は
+外部 Interface 上では必ず `str` とする。
+
+例：
+
+```python
+"char_001"
+"scene_010"
+```
+
+UUID object や内部 DB key format は
+StoryDB 内部でカプセル化し、
+外部へ露出してはならない。
+
+【追加理由】
+
+Phase 3.5 において：
+
+* UUID 型
+* str 型
+
+の混在により
+Validator の参照失敗が発生したため。
+
 ### 5.2 参照整合性
 
 Link が参照する source_id と target_id は
 必ず既存の Entity ID でなければならない。
 
 存在しない ID へのリンクは禁止。
+
+【Phase 3.5 追記】
+
+参照確認時の Entity 解決は
+必ず StoryDB Interface を経由する。
+
+```python
+story_db.get(entity_id)
+```
+
+内部 storage 構造への直接アクセスは禁止。
+
+【追加理由】
+
+Validator / Engine / Mock 間で
+I/F 契約を統一するため。
 
 ### 5.3 親子関係制約
 
@@ -231,12 +376,31 @@ Entity を削除する場合：
 
 NWF Story Database v2.0.1 では以下を実現した。
 
-- 全 Entity を独立 Document として保存
-- Entity 間関係を Link（Edge）として管理
-- Document-Graph Hybrid Database 構造採用
-- Git に適したファイル分割構造
-- 多対多関係管理
-- データ整合性ルール定義
+* 全 Entity を独立 Document として保存
+* Entity 間関係を Link（Edge）として管理
+* Document-Graph Hybrid Database 構造採用
+* Git に適したファイル分割構造
+* 多対多関係管理
+* データ整合性ルール定義
+
+【Phase 3.5 追記】
+
+さらに以下を正式仕様化した。
+
+* `get(entity_id: str) -> Optional[Entity]`
+* 非存在時 `None` を返す
+* Validator は `story_db.get()` のみを使用
+* ID は外部 Interface 上 `str` に統一
+* Mock DB を含む全 DB 実装の I/F 統一
+
+これにより：
+
+* Validator の純粋性
+* StoryDB 実装交換可能性
+* Mock / Production 間整合性
+* Immutability Check の安定性
+
+を保証する。
 
 Story Database は
 NWF における物語データの永続記憶層であり、

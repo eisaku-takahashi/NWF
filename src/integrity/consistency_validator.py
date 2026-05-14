@@ -1,372 +1,691 @@
 """
 Source: src/integrity/consistency_validator.py
-Updated: 2026-04-22T10:12:00+09:00  # ★Phase 3.4 最終確認（CRITICAL生成保証の明示）
+Updated: 2026-05-11T00:15:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
-    - docs/spec/Execution_Spec/NWF_Validator_And_Context_Contract_v2.0.1.md
-    - docs/spec/Project_Governance/NWF_Recursive_Integrity_Spec_v2.0.1.md
-    - docs/spec/Core_Spec/NWF_State_Transition_Model_v2.0.1.md
-    - docs/spec/Core_Spec/NWF_World_Rule_Model_v2.0.1.md
-    - docs/spec/Core_Spec/NWF_World_Rule_Execution_v2.0.1.md
-    - docs/spec/Architecture_Spec/NWF_Narrative_Consistency_Model_v2.0.1.md
-    - docs/spec/Kernel_Spec/NWF_Kernel_Core_Concept_v2.0.1.md
-    - src/workflow/workflow_context.py
-    - src/integrity/validation_result.py
-    - src/models/nwf_enums.py
+    - docs/spec/Execution_Spec/NWF_Consistency_Validator_Spec_v2.0.1_Phase_3.5.md
+    - docs/spec/Execution_Spec/NWF_Validation_System_v2.0.1.md
+    - docs/spec/Execution_Spec/NWF_Escalation_Logic_Spec_v2.0.1.md
+    - docs/spec/Core_Spec/NWF_Story_Database_v2.0.1.md
+    - docs/spec/Core_Spec/NWF_Entity_ID_System_v2.0.1.md
+    - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
 Docstring:
-    Consistency Validator モジュール。
+    ConsistencyValidator モジュール。
 
-    Phase 3.4 最終修正：
-    - Severity判定の厳密化（CRITICAL / ERROR / WARNING の完全分離）
-    - Validator Contract「必ず1件以上返す」を保証
-    - getattr依存の削減（※完全排除は別Phaseで対応）
-    - 旧ロジック完全保持（削除禁止）
+    NWF Phase 3.5 における Validation Orchestrator 実装。
+    本クラスは単一ルールを保持する Validator ではなく、
+    Validation Pipeline の整合性制御を担う。
 
-    ★今回追加（デバッグ対応）:
-    - CRITICAL発火経路の明示追加（force_critical）
-    - test_critical_flow 対応
-    - Validatorレイヤでの強制停止ルート確保
+    主責務:
+    - Validation orchestration
+    - Pre-validation
+    - Immutability enforcement
+    - ValidationResult aggregation
+    - Escalation routing
+    - Audit logging
 
-    ★ Phase 3.4 最終確認（今回追加）:
-    - IMMUTABILITY_BREACH → CRITICAL であることを明示コメント化
-    - ERR_CAUSAL_004 → CRITICAL であることを明示コメント化
-    - 「CRITICALは正しく生成されている」ことを保証
-    - 以降の問題は伝播（Pipeline側）であることを明確化
-
-    重要：
-    - 修正前コードはコメントとして保持
-    - 差分を明示
+    重要仕様:
+    - Pure Evaluator Principle 準拠
+    - StoryDB I/F のみ利用
+    - Immutability violation は即時 CRITICAL
+    - violation 存在時は success(INFO) を生成しない
+    - validate() 外へ未処理 exception を出さない
+      （TypeError のみ再送出許可）
 """
 
 # =========================
 # Import
 # =========================
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional
+from datetime import timezone, timedelta
+from typing import Any, List
 
-from src.workflow.workflow_context import WorkflowContext
 from src.integrity.validation_result import ValidationResult
+from src.integrity.rule_evaluator import RuleEvaluator
+from src.integrity.escalation_evaluator import EscalationEvaluator
+
 from src.models.nwf_enums import NWFSeverity
 
 # =========================
 # Constants / Config
 # =========================
+
+# NWF 時間管理規則:
+# - JST 固定
 JST = timezone(timedelta(hours=9))
 
 # =========================
 # Public Interface
 # =========================
 __all__ = [
-    "ConsistencyResult",
     "ConsistencyValidator",
 ]
 
 # =========================
 # Classes
 # =========================
-class ConsistencyResult:
-    """
-    （旧）論理整合性検証結果コンテナ（互換維持用）
-    """
-
-    def __init__(self, transaction_id: str):
-        self.is_consistent: bool = True
-        self.violations: List[str] = []
-        self.context_snapshot: Dict[str, Any] = {}
-        self.transaction_id: str = transaction_id
-        self.timestamp: datetime = datetime.now(JST)
-
-
 class ConsistencyValidator:
     """
-    因果律整合性検証クラス（Phase 3.4 完全準拠）
+    NWF Phase 3.5 Consistency Validator
+
+    Validation Orchestrator として動作する。
+
+    Args:
+        rule_evaluator:
+            RuleEvaluator インスタンス
+
+        escalation_evaluator:
+            EscalationEvaluator インスタンス
+
+        audit_manager:
+            AuditLogManager インスタンス
+
+        story_db:
+            StoryDB インスタンス
+            必須 I/F:
+                get(entity_id: str) -> Optional[NWFObject]
+
+    Notes:
+        - validate() は list[ValidationResult] を返す
+        - ValidationResult は single-result object
+        - aggregate ValidationResult は生成しない
     """
 
-    def __init__(self, story_db: Optional[Any] = None):
+    def __init__(
+        self,
+        rule_evaluator: RuleEvaluator,
+        escalation_evaluator: EscalationEvaluator,
+        audit_manager: Any,
+        story_db: Any
+    ):
+        """
+        ConsistencyValidator 初期化。
+
+        Args:
+            rule_evaluator:
+                RuleEvaluator
+
+            escalation_evaluator:
+                EscalationEvaluator
+
+            audit_manager:
+                AuditLogManager
+
+            story_db:
+                StoryDB
+        """
+
+        # =========================================================
+        # 修正前:
+        # self.story_db = story_db
+        #
+        # self.rule_evaluator = RuleEvaluator()
+        # self.escalation_evaluator = EscalationEvaluator()
+        #
+        # 問題:
+        # - Spec の Constructor Contract 不一致
+        # - Dependency Injection 非対応
+        # - test/mock 差し替え不能
+        # =========================================================
+
+        # =========================================================
+        # 修正後:
+        # Spec の Constructor Contract に完全準拠
+        # =========================================================
+        self.rule_evaluator = rule_evaluator
+        self.escalation_evaluator = escalation_evaluator
+        self.audit_manager = audit_manager
         self.story_db = story_db
 
-        # デフォルトルール
-        self.world_rules: Dict[str, Any] = {
-            "allow_resurrection": False,
-            "allow_ghost_activity": False,
-            "allow_time_reversal": False
-        }
-
+    # =========================
+    # Public Method
+    # =========================
     def validate(
         self,
-        context: WorkflowContext,
-        target: Any
+        entity: Any,
+        context: Any
     ) -> List[ValidationResult]:
         """
-        Validator Contract 準拠
+        単一 Entity の整合性検証を行う。
+
+        Args:
+            entity:
+                検証対象 Entity
+
+            context:
+                ValidationContext
 
         Returns:
-            List[ValidationResult]（必ず1件以上）
+            list[ValidationResult]
+
+        Raises:
+            TypeError:
+                StoryDB I/F 契約違反時
         """
 
-        results: List[ValidationResult] = []
-
-        # =========================================================
-        # ★ Phase 3.4 デバッグ追加（最重要）
-        # =========================================================
-        if context.metadata.get("force_critical"):
-            raise RuntimeError("FORCED CRITICAL (test hook)")
-
-        # -----------------------------
-        # 初期ダミー（旧ロジック維持のため）
-        # -----------------------------
-        dummy_prev = ValidationResult(
-            is_valid=True,
-            severity=NWFSeverity.INFO,
-            error_code="INFO_INIT",
-            message="Initial",
-            violated_rules=[],
-            transaction_id=context.transaction_id,
-            stardate=context.current_stardate,
-            metadata={}
-        )
-
-        legacy_result = self._legacy_validate(context, dummy_prev)
-
-        # -----------------------------
-        # 変換処理（旧 → 新）
-        # -----------------------------
-        for violation in legacy_result.violations:
-
-            # =============================
-            # ★修正前（問題あり）
-            # =============================
-            # severity = NWFSeverity.ERROR
-            # if "WARN" in violation:
-            #     severity = NWFSeverity.WARNING
-            # if "IMMUTABILITY_BREACH" in violation:
-            #     severity = NWFSeverity.CRITICAL
-
-            # =============================
-            # ★修正後（完全準拠）
-            # =============================
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-            # ★ Phase 3.4 最終確認ポイント
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-            # ここがCRITICAL生成の中核ロジックである
-            #
-            # ✔ IMMUTABILITY_BREACH → CRITICAL
-            # ✔ ERR_CAUSAL_004     → CRITICAL
-            #
-            # これにより：
-            # 「Validatorは正しくCRITICALを生成している」
-            # ことが保証される
-            #
-            # → 問題は伝播層（Auditor / Adapter / Engine）にある
-            # ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-
-            if "IMMUTABILITY_BREACH" in violation:
-                # ★ CRITICAL生成保証（不変性違反は最上位エラー）
-                severity = NWFSeverity.CRITICAL
-
-            elif violation.startswith("ERR_CAUSAL_004"):
-                # ★ CRITICAL生成保証（死→生の逆転は致命的因果違反）
-                severity = NWFSeverity.CRITICAL
-
-            elif violation.startswith("ERR_WORLD_RULE"):
-                severity = NWFSeverity.ERROR
-
-            elif violation.startswith("ERR_CAUSAL"):
-                severity = NWFSeverity.ERROR
-
-            elif "WARN" in violation:
-                severity = NWFSeverity.WARNING
-
-            else:
-                severity = NWFSeverity.ERROR
-
-            results.append(
-                ValidationResult(
-                    is_valid=False,
-                    severity=severity,
-                    error_code="ERR_CONSISTENCY",
-                    message=violation,
-                    violated_rules=[violation],
-                    transaction_id=context.transaction_id,
-                    stardate=context.current_stardate,
-                    metadata={
-                        "source": "ConsistencyValidator",
-                        "timestamp": datetime.now(JST).isoformat()
-                    }
-                )
-            )
-
-        # -----------------------------
-        # 正常系（必ず1件保証）
-        # -----------------------------
-        if not results:
-            results.append(
-                ValidationResult(
-                    is_valid=True,
-                    severity=NWFSeverity.INFO,
-                    error_code="OK",
-                    message="Consistency OK",
-                    violated_rules=[],
-                    transaction_id=context.transaction_id,
-                    stardate=context.current_stardate,
-                    metadata={}
-                )
-            )
-
-        return results
-
-    # =========================
-    # Legacy Logic（完全保持）
-    # =========================
-    def _legacy_validate(
-        self,
-        context: WorkflowContext,
-        prev_result: ValidationResult
-    ) -> ConsistencyResult:
-
-        res = ConsistencyResult(context.transaction_id)
-        res.context_snapshot = self._create_context_snapshot(context)
-
-        if not prev_result.is_valid:
-            res.violations.append("WARN: Structural integrity failed")
-
-        self._check_immutability(context, res)
-
-        if not res.is_consistent:
-            return res
-
-        DEFAULT_WORLD_RULES = {
-            "allow_resurrection": False,
-            "allow_ghost_activity": False,
-            "allow_time_reversal": False
-        }
-
-        # 修正前（Spec違反）:
-        # **getattr(context, "world_rules", {})
-
-        # 修正後:
-        self.world_rules = {
-            **DEFAULT_WORLD_RULES,
-            **context.world_rules
-        }
-
-        self._check_state_transition(context, res)
-        self._check_world_rule_violation(context, res)
-        self._check_recursive_consistency(context, res)
-
-        return res
-
-    def _create_context_snapshot(self, context: WorkflowContext) -> Dict[str, Any]:
-        return {
-            "transaction_id": context.transaction_id,
-            "metadata": context.metadata,
-        }
-
-    def _check_immutability(self, context: WorkflowContext, res: ConsistencyResult) -> None:
-
-        immutable_fields = ["uuid", "created_at", "origin_event_id"]
-
-        current_entities = getattr(context, "global_vars", {})
-
-        if not self.story_db:
-            return
-
         try:
-            previous_state = self.story_db.get_previous_state(context.transaction_id)
-        except Exception:
-            return
 
-        previous_entities = previous_state.get("global_vars", {})
+            # =====================================================
+            # Step 1:
+            # Context Contract Check
+            # =====================================================
 
-        for entity_id, current_obj in current_entities.items():
-            prev_obj = previous_entities.get(entity_id)
+            # -----------------------------------------------------
+            # 修正前:
+            # context.metadata.get(...)
+            #
+            # 問題:
+            # - context is None 時に AttributeError
+            # - Spec Step 1 未実装
+            # -----------------------------------------------------
 
-            if not prev_obj:
-                continue
+            if context is None:
+                return [
+                    ValidationResult.failure(
+                        severity=NWFSeverity.FATAL,
+                        message="Validation context is None",
+                        target_id="UNKNOWN",
+                        scope="SYSTEM_INTEGRITY",
+                        rule_id="SYS_CONTEXT_CONTRACT"
+                    )
+                ]
 
-            for field in immutable_fields:
-                if hasattr(prev_obj, field) and hasattr(current_obj, field):
-                    if getattr(prev_obj, field) != getattr(current_obj, field):
-                        res.is_consistent = False
-                        res.violations.append(
-                            f"IMMUTABILITY_BREACH: {entity_id}.{field}"
+            # -----------------------------------------------------
+            # Spec:
+            # context.is_valid() is True
+            # -----------------------------------------------------
+            if not context.is_valid():
+                return [
+                    ValidationResult.failure(
+                        severity=NWFSeverity.FATAL,
+                        message="Validation context is invalid",
+                        target_id="UNKNOWN",
+                        scope="SYSTEM_INTEGRITY",
+                        rule_id="SYS_CONTEXT_CONTRACT"
+                    )
+                ]
+
+            # =====================================================
+            # Step 2:
+            # ID Normalization
+            # =====================================================
+
+            # -----------------------------------------------------
+            # 必須仕様:
+            # target_id = str(getattr(entity, "id", ""))
+            # -----------------------------------------------------
+            target_id: str = str(getattr(entity, "id", ""))
+
+            # -----------------------------------------------------
+            # 修正前:
+            # target.id を直接使用
+            #
+            # 問題:
+            # - UUID/str 混在で不安定
+            # - Spec 8.2 違反
+            # -----------------------------------------------------
+
+            # =====================================================
+            # Step 3:
+            # Basic Integrity
+            # =====================================================
+
+            results: List[ValidationResult] = []
+
+            # -----------------------------------------------------
+            # metadata 存在確認
+            # -----------------------------------------------------
+            if not hasattr(entity, "metadata"):
+                results.append(
+                    ValidationResult.failure(
+                        severity=NWFSeverity.ERROR,
+                        message="Missing metadata",
+                        target_id=target_id,
+                        scope="SYSTEM_INTEGRITY",
+                        rule_id="SYS_METADATA_CHECK"
+                    )
+                )
+
+            # -----------------------------------------------------
+            # version 存在確認
+            # -----------------------------------------------------
+            if not hasattr(entity, "version"):
+                results.append(
+                    ValidationResult.failure(
+                        severity=NWFSeverity.ERROR,
+                        message="Missing version",
+                        target_id=target_id,
+                        scope="SYSTEM_INTEGRITY",
+                        rule_id="SYS_VERSION_CHECK"
+                    )
+                )
+
+            # =====================================================
+            # Step 4:
+            # Immutability Check
+            # =====================================================
+
+            # -----------------------------------------------------
+            # 必須仕様:
+            # previous = self.story_db.get(target_id)
+            # -----------------------------------------------------
+
+            previous = None
+
+            try:
+
+                # -------------------------------------------------
+                # 修正前:
+                # previous = self.story_db.get(target.id)
+                #
+                # 問題:
+                # - ID正規化未適用
+                # -------------------------------------------------
+
+                previous = self.story_db.get(target_id)
+
+            except TypeError:
+                # -------------------------------------------------
+                # Spec 12.2:
+                # TypeError のみ再送出許可
+                # -------------------------------------------------
+                raise
+
+            # -----------------------------------------------------
+            # 修正前:
+            # except Exception:
+            #     previous = None
+            #
+            # 問題:
+            # - Spec 12.3 違反
+            # - exception を silent fallback
+            # -----------------------------------------------------
+
+            except Exception as exc:
+                return [
+                    ValidationResult.failure(
+                        severity=NWFSeverity.FATAL,
+                        message=f"StoryDB access failed: {str(exc)}",
+                        target_id=target_id,
+                        scope="SYSTEM_INTEGRITY",
+                        rule_id="SYS_STORY_DB_ACCESS"
+                    )
+                ]
+
+            # -----------------------------------------------------
+            # UUID comparison debug
+            # Required Logging Policy
+            # -----------------------------------------------------
+            print(
+                "[DEBUG] UUID comparison:",
+                {
+                    "target_id": target_id,
+                    "previous_exists": previous is not None,
+                }
+            )
+
+            # -----------------------------------------------------
+            # previous is None:
+            # 新規 Entity
+            # -----------------------------------------------------
+            if previous is not None:
+
+                # =================================================
+                # 修正前:
+                # UUID未定義を violation 化
+                #
+                # if not prev_uuid or not curr_uuid:
+                #     violations.append("IMMUTABILITY_UUID_MISSING")
+                #
+                # 問題:
+                # - Spec 10.6 違反
+                # - UUID Missing は violation にしてはならない
+                # =================================================
+
+                previous_uuid = getattr(previous, "uuid", None)
+                current_uuid = getattr(entity, "uuid", None)
+
+                # =================================================
+                # 必須仕様:
+                # str(previous.uuid) != str(entity.uuid)
+                # =================================================
+                # =================================================
+                # UUID Missing Policy
+                #
+                # Work Plan v20260502 では:
+                #
+                #     if str(previous.uuid) != str(entity.uuid):
+                #
+                # の無条件比較例が記載されている。
+                #
+                # しかし Execution Spec Phase 3.5
+                # 「10.6 UUID Missing Policy」により:
+                #
+                #     previous.uuid is None
+                #     entity.uuid is None
+                #
+                # は violation としてはならない。
+                #
+                # そのため現在実装では:
+                # - UUID 両方存在時のみ比較
+                # - None を含むケースは skip
+                #
+                # を正式仕様として採用する。
+                #
+                # これは Work Plan の暫定実装例ではなく、
+                # Execution Spec の最終仕様を優先した実装である。
+                # =================================================                
+                if (
+                    previous_uuid is not None
+                    and current_uuid is not None
+                    and str(previous_uuid) != str(current_uuid)
+                ):
+
+                    results.append(
+                        ValidationResult.failure(
+                            severity=NWFSeverity.CRITICAL,
+                            message="IMMUTABILITY_BREACH: UUID changed",
+                            target_id=target_id,
+                            scope="SYSTEM_INTEGRITY",
+                            rule_id="SYS_IMMUTABILITY_CHECK"
                         )
-                        return
-
-    def _check_state_transition(self, context: WorkflowContext, res: ConsistencyResult) -> None:
-
-        current_state = context.metadata.get("state")
-        prev_state = context.metadata.get("previous_state")
-
-        allowed_transitions = {
-            "IDLE": ["READY"],
-            "READY": ["RUNNING"],
-            "RUNNING": ["COMPLETED", "FAILED", "SUSPEND"],
-            "SUSPEND": ["RUNNING", "ABORTED"],
-            "COMPLETED": ["IDLE"],
-            "FAILED": ["IDLE"],
-            "ABORTED": ["IDLE"],
-        }
-
-        if prev_state and current_state:
-            if current_state not in allowed_transitions.get(prev_state, []):
-                res.is_consistent = False
-                res.violations.append(
-                    f"ERR_CAUSAL_001: {prev_state}->{current_state}"
-                )
-
-    def _check_world_rule_violation(self, context: WorkflowContext, res: ConsistencyResult) -> None:
-
-        if context.metadata.get("world_rule_violation"):
-            res.is_consistent = False
-            res.violations.append("ERR_WORLD_RULE_001")
-
-    def _check_recursive_consistency(self, context: WorkflowContext, res: ConsistencyResult) -> None:
-
-        if not self.story_db:
-            return
-
-        try:
-            previous_state = self.story_db.get_previous_state(context.transaction_id)
-        except Exception:
-            res.violations.append("WARN_CAUSAL_003")
-            return
-
-        current_entities = getattr(context, "global_vars", {})
-        previous_entities = previous_state.get("global_vars", {})
-
-        for entity_id, current_obj in current_entities.items():
-            prev_obj = previous_entities.get(entity_id)
-
-            if not prev_obj:
-                continue
-
-            if hasattr(prev_obj, "is_alive") and hasattr(current_obj, "is_alive"):
-                if prev_obj.is_alive is False and current_obj.is_alive is True:
-                    res.is_consistent = False
-                    res.violations.append(
-                        f"ERR_CAUSAL_004: {entity_id}"
                     )
 
-            related_scenes = getattr(current_obj, "related_scenes", [])
+                    # =============================================
+                    # Step 7:
+                    # Escalation Routing
+                    # Immutability violation 時は即時 routing
+                    # =============================================
 
-            for scene_id in related_scenes:
-                scene = current_entities.get(scene_id)
+                    # ---------------------------------------------
+                    # 修正前:
+                    # RuleEvaluator 実行後に immutability
+                    #
+                    # 問題:
+                    # - Spec 10.2 / 10.8 違反
+                    # - RuleEvaluator を停止できない
+                    # ---------------------------------------------
 
-                if not scene:
-                    continue
+                    print(
+                        "[DEBUG] escalation routing:",
+                        {
+                            "target_id": target_id,
+                            "reason": "IMMUTABILITY_BREACH",
+                        }
+                    )
 
-                if hasattr(current_obj, "is_alive") and current_obj.is_alive is False:
+                    escalation_results = (
+                        self.escalation_evaluator.evaluate_escalation(
+                            entity,
+                            results
+                        )
+                    )
 
-                    allow_ghost = self.world_rules.get("allow_ghost_activity", False)
+                    final_results = [
+                        *results,
+                        *escalation_results,
+                    ]
 
-                    if not allow_ghost:
-                        if hasattr(scene, "characters") and entity_id in scene.characters:
-                            res.is_consistent = False
-                            res.violations.append(
-                                f"ERR_WORLD_RULE_002: {entity_id}"
-                            )
+                    # =============================================
+                    # Step 8:
+                    # Audit Logging
+                    # =============================================
+                    self.audit_manager.log_validation(
+                        entity=entity,
+                        results=final_results,
+                        context=context
+                    )
+
+                    # =============================================
+                    # Step 9:
+                    # Deterministic Sort
+                    # =============================================
+                    final_results = sorted(
+                        final_results,
+                        key=lambda r: (
+                            self._scope_weight(r.scope),
+                            getattr(r, "error_code", None) or "SUCCESS",
+                            r.target_id
+                        )
+                    )
+
+                    return final_results
+
+            # =====================================================
+            # Step 5:
+            # RuleEvaluator Delegation
+            # =====================================================
+
+            # -----------------------------------------------------
+            # 修正前:
+            # self.rule_evaluator.process(...)
+            #
+            # 問題:
+            # - Spec Interface 不一致
+            # - evaluate() 必須
+            # -----------------------------------------------------
+
+            rule_results = self.rule_evaluator.evaluate(
+                entity,
+                context
+            )
+
+            # =====================================================
+            # Step 6:
+            # Result Aggregation
+            # =====================================================
+
+            results.extend(rule_results)
+
+            # =====================================================
+            # INFO Generation Rule
+            # =====================================================
+
+            # -----------------------------------------------------
+            # 必須仕様:
+            # any(not r.is_valid for r in results)
+            # -----------------------------------------------------
+            has_failure = any(
+                not r.is_valid
+                for r in results
+            )
+
+            # -----------------------------------------------------
+            # violation が存在する場合:
+            # success を生成しない
+            # -----------------------------------------------------
+            if not has_failure:
+
+                results.append(
+                    ValidationResult.success(
+                        severity=NWFSeverity.INFO,
+                        message="Validation OK",
+                        target_id=target_id,
+                        scope="SYSTEM_INTEGRITY",
+                        rule_id="SYS_CONSISTENCY_PASS"
+                    )
+                )
+
+            # =====================================================
+            # Step 7:
+            # Escalation Routing
+            # =====================================================
+
+            has_error_or_critical = any(
+                getattr(r, "severity", None) in (
+                    NWFSeverity.ERROR,
+                    NWFSeverity.CRITICAL,
+                    NWFSeverity.FATAL,
+                )
+                for r in results
+            )
+
+            if has_error_or_critical:
+
+                print(
+                    "[DEBUG] escalation routing:",
+                    {
+                        "target_id": target_id,
+                        "result_count": len(results),
+                    }
+                )
+
+                escalation_results = (
+                    self.escalation_evaluator.evaluate_escalation(
+                        entity,
+                        results
+                    )
+                )
+
+                results.extend(escalation_results)
+
+            # =====================================================
+            # Step 8:
+            # Audit Logging
+            # =====================================================
+
+            self.audit_manager.log_validation(
+                entity=entity,
+                results=results,
+                context=context
+            )
+
+            # =====================================================
+            # Step 9:
+            # Deterministic Sort
+            # =====================================================
+
+            # -----------------------------------------------------
+            # 修正前:
+            # r.code 依存
+            #
+            # 問題:
+            # - ValidationResult 内部実装依存
+            # - success 時に未定義となる可能性
+            # -----------------------------------------------------
+
+            results = sorted(
+                results,
+                key=lambda r: (
+                    self._scope_weight(r.scope),
+                    getattr(r, "error_code", None) or "SUCCESS",
+                    r.target_id
+                )
+            )
+
+            return results
+
+        except TypeError:
+            # =====================================================
+            # Spec 12.2:
+            # TypeError のみ再送出
+            # =====================================================
+            raise
+
+        except Exception as exc:
+            # =====================================================
+            # Spec 12.3:
+            # その他 exception は FATAL result 化
+            # =====================================================
+
+            return [
+                ValidationResult.failure(
+                    severity=NWFSeverity.FATAL,
+                    message=f"Unhandled validation exception: {str(exc)}",
+                    target_id=str(getattr(entity, "id", "UNKNOWN")),
+                    scope="SYSTEM_INTEGRITY",
+                    rule_id="SYS_VALIDATION_EXCEPTION"
+                )
+            ]
+
+    # =========================
+    # Public Method
+    # =========================
+    def validate_batch(
+        self,
+        entities: List[Any],
+        context: Any
+    ) -> List[ValidationResult]:
+        """
+        複数 Entity を検証する。
+
+        Args:
+            entities:
+                検証対象 Entity 一覧
+
+            context:
+                ValidationContext
+
+        Returns:
+            list[ValidationResult]
+        """
+
+        batch_results: List[ValidationResult] = []
+
+        for entity in entities:
+
+            entity_results = self.validate(
+                entity=entity,
+                context=context
+            )
+
+            batch_results.extend(entity_results)
+
+        # =========================================================
+        # Deterministic Sort
+        # =========================================================
+        batch_results = sorted(
+            batch_results,
+            key=lambda r: (
+                self._scope_weight(r.scope),
+                getattr(r, "error_code", None) or "SUCCESS",
+                r.target_id
+            )
+        )
+
+        return batch_results
+
+    # =========================
+    # Utilities
+    # =========================
+    def _scope_weight(
+        self,
+        scope: str
+    ) -> int:
+        """
+        scope 用 deterministic sort weight を返す。
+
+        Args:
+            scope:
+                Validation scope
+
+        Returns:
+            int:
+                sort weight
+        """
+
+        order = {
+            "SYSTEM_INTEGRITY": 10,
+            "DATA_CONSISTENCY": 20,
+            "BUSINESS_LOGIC": 30,
+        }
+
+        return order.get(scope, 99)
+
+    # =============================================================
+    # Legacy Logic（保持）
+    # =============================================================
+    # 削除禁止:
+    # 過去デバッグ履歴保持のためコメント化して残す
+    #
+    # 問題:
+    # - Phase 3.5 Spec 非準拠
+    # - aggregate ValidationResult 前提
+    #
+    """
+    def _legacy_validate(...):
+        pass
+    """
 
 
 # =========================

@@ -1,24 +1,26 @@
 """
 Source: src/workflow/workflow_context.py
-Updated: 2026-04-20T00:54:00+09:00  # ← ★更新日時を修正
+Updated: 2026-04-25T12:02:00+09:00  # ★Phase 3.5 拡張対応
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Project_Governance/NWF_Workflow_Engine_Spec_v2.0.1.md
     - docs/spec/Execution_Spec/NWF_Validator_And_Context_Contract_v2.0.1.md
 Docstring:
-    WorkflowContext モジュール（Phase 3.4 完全Spec準拠版）。
+    WorkflowContext モジュール（Phase 3.5 拡張版）。
 
     修正内容（重要）：
-    - WorkflowContext.__init__ を Spec Contract 準拠に変更
-    - transaction_id 自動生成（UUID v7）
-    - metadata / world_rules / transaction / stardate を constructor で受け取る
-    - 旧I/Fはコメントアウトで保持（監査用）
+    - Phase 3.4 Spec Contract 維持
+    - Phase 3.5 拡張:
+        - trace_id 追加（生成時固定・不変）
+        - execution_id 追加（実行単位識別子）
+        - scene_state 明確化（metadata依存から分離）
+        - Evaluatorが参照可能な構造強化
 """
 
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List
-import uuid  # ← ★追加（transaction_id生成用）
+import uuid
 
 # JST タイムゾーン定義
 JST = timezone(timedelta(hours=9))
@@ -69,13 +71,17 @@ class WorkflowContext:
     """
     Workflow 実行時の共有データを管理するクラス。
 
-    ★ Phase 3.4 修正：
-    - Spec Contract 準拠（完全一致）
-    - SSoT（Single Source of Truth）
+    ★ Phase 3.4:
+    - Spec Contract 準拠
+    - SSoT
+
+    ★ Phase 3.5:
+    - Traceability 強化
+    - Evaluator 対応構造
     """
 
     # ============================================================
-    # ❌ 修正前（旧I/F） ※削除せずコメントアウト
+    # ❌ 修正前（旧I/F） ※削除せず保持
     # ============================================================
     """
     def __init__(self, transaction_id: str) -> None:
@@ -95,7 +101,7 @@ class WorkflowContext:
     """
 
     # ============================================================
-    # ✅ 修正後（Spec v2.0.1 完全準拠）
+    # ✅ 修正後（Phase 3.5 拡張版）
     # ============================================================
     def __init__(
         self,
@@ -105,7 +111,7 @@ class WorkflowContext:
         current_stardate: float,
     ) -> None:
         """
-        初期化処理（Spec準拠）。
+        初期化処理（Spec準拠 + Phase 3.5 拡張）
 
         Args:
             metadata (Dict[str, Any])
@@ -117,32 +123,49 @@ class WorkflowContext:
         now = datetime.now(JST).isoformat()
 
         # --------------------------------------------------------
-        # ★ 修正ポイント①：transaction_id 自動生成
+        # ★ Phase 3.4: transaction_id
         # --------------------------------------------------------
-        # Spec:
-        # UUID v7 を標準とする
-        # ※Python標準未対応のため uuid4 を代替（将来置換）
         self.transaction_id: str = str(uuid.uuid4())
 
         # --------------------------------------------------------
-        # ★ 修正ポイント②：Spec構造を直接保持
+        # ★ Phase 3.5 追加①: trace_id（不変）
+        # --------------------------------------------------------
+        # ★設計意図:
+        # - 全Workflowのトレースを一意に識別
+        # - Evaluator / Validator / Engine 全体で共有
+        self.trace_id: str = str(uuid.uuid4())
+
+        # --------------------------------------------------------
+        # ★ Phase 3.5 追加②: execution_id
+        # --------------------------------------------------------
+        # ★設計意図:
+        # - 実行単位の識別（再実行・リトライ区別）
+        self.execution_id: str = str(uuid.uuid4())
+
+        # --------------------------------------------------------
+        # ★ Phase 3.4: Spec構造
         # --------------------------------------------------------
         self.metadata: Dict[str, Any] = metadata
         self.world_rules: Dict[str, bool] = world_rules
         self.transaction: List[TransactionEntry] = transaction
 
-        # ★ stardate 精度制御（Spec準拠）
+        # --------------------------------------------------------
+        # ★ Phase 3.5 追加③: scene_state 明確化
+        # --------------------------------------------------------
+        # ❌ 旧: metadata内に曖昧に存在
+        # ✅ 新: 明示フィールド化
+        self.scene_state: Dict[str, Any] = metadata.get("scene_state", {})
+
+        # --------------------------------------------------------
+        # stardate（Spec準拠）
+        # --------------------------------------------------------
         self.current_stardate: float = round(current_stardate, 6)
 
         # --------------------------------------------------------
-        # ★ 互換レイヤ（既存コード救済）
+        # 互換レイヤ
         # --------------------------------------------------------
-        # ↓旧コードが参照するため残す（将来削除可能）
         self._global_vars: Dict[str, Any] = {}
         self._local_vars: Dict[str, Any] = {}
-
-        # ❌ 旧 _metadata → 新 metadata に統合
-        # self._metadata: Dict[str, Any] = {}
 
         self._created_at: str = now
         self._updated_at: str = now
@@ -152,15 +175,12 @@ class WorkflowContext:
     # ============================================================
 
     def get_transaction_id(self) -> str:
-        # ★修正：新フィールド参照
         return self.transaction_id
 
     def get_metadata(self, key: str) -> Optional[Any]:
-        # ★修正：_metadata → metadata
         return self.metadata.get(key)
 
     def set_metadata(self, key: str, value: Any) -> None:
-        # ★修正：_metadata → metadata
         self.metadata[key] = value
         self._update_timestamp()
 
@@ -168,7 +188,6 @@ class WorkflowContext:
         return self.world_rules.get(key)
 
     def set_world_rule(self, key: str, value: bool) -> None:
-        # ★注意：本来 immutable
         self.world_rules[key] = value
         self._update_timestamp()
 
@@ -187,16 +206,31 @@ class WorkflowContext:
         return self.current_stardate
 
     # ============================================================
-    # ★ 安全アクセス（getattr禁止対応）
+    # ★ Phase 3.5 追加: Trace取得API
+    # ============================================================
+
+    def get_trace_id(self) -> str:
+        return self.trace_id
+
+    def get_execution_id(self) -> str:
+        return self.execution_id
+
+    def get_scene_state(self) -> Dict[str, Any]:
+        return dict(self.scene_state)
+
+    # ============================================================
+    # ★ 安全アクセス
     # ============================================================
     def get_attr(self, key: str, default: Any = None) -> Any:
-        # 優先順位：metadata → world_rules → global → local
 
         if key in self.metadata:
             return self.metadata.get(key)
 
         if key in self.world_rules:
             return self.world_rules.get(key)
+
+        if key in self.scene_state:
+            return self.scene_state.get(key)
 
         if key in self._global_vars:
             return self._global_vars.get(key)
@@ -212,8 +246,11 @@ class WorkflowContext:
     def snapshot(self) -> Dict[str, Any]:
         return {
             "transaction_id": self.transaction_id,
+            "trace_id": self.trace_id,
+            "execution_id": self.execution_id,
             "metadata": dict(self.metadata),
             "world_rules": dict(self.world_rules),
+            "scene_state": dict(self.scene_state),
             "transaction": [t.to_dict() for t in self.transaction],
             "current_stardate": self.current_stardate,
             "created_at": self._created_at,
@@ -231,12 +268,13 @@ class WorkflowContext:
 
 
 if __name__ == "__main__":
-    # ★ 新I/Fテスト（Spec準拠）
+
     ctx = WorkflowContext(
         metadata={
             "base_date": "2026-01-01",
             "time_unit": "day",
             "coordinate_system": "earth",
+            "scene_state": {"location": "tokyo"},
         },
         world_rules={
             "allow_ghost_activity": False,

@@ -1,0 +1,145 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "NWF Entity Schema v2.0.1",
+    "description": "Common entity schema for all NWF objects (Character, Scene, Event, Thread, Timeline, etc.)",
+    "type": "object",
+    "required": [
+        "id",
+        "type",
+        "title",
+        "content",
+        "status",
+        "version",
+        "metadata",
+        "created_at",
+        "updated_at",
+        "created_by"
+    ],
+    "properties": {
+        "id": {
+            "type": "string",
+            "description": "Unique Entity ID (Prefix + UUIDv7)",
+            "pattern": "^[A-Z]{3,5}-[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "type": {
+            "type": "string",
+            "description": "Entity type",
+            "enum": [
+                "CHARACTER",
+                "SCENE",
+                "EVENT",
+                "THREAD",
+                "TIMELINE",
+                "WORLD_RULE",
+                "CONFLICT",
+                "BEAT",
+                "PLOT",
+                "RELATIONSHIP",
+                "STATE"
+            ]
+        },
+        "title": {
+            "type": "string",
+            "description": "Logical name of the entity"
+        },
+        "content": {
+            "type": "object",
+            "description": "Entity specific content based on Data Spec"
+        },
+        "status": {
+            "type": "string",
+            "description": "Entity lifecycle state",
+            "enum": [
+                "DRAFT",
+                "REVIEW",
+                "APPROVED",
+                "RELEASED",
+                "ARCHIVED"
+            ]
+        },
+        "version": {
+            "type": "string",
+            "description": "Semantic version",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        },
+        "dependencies": {
+            "type": "array",
+            "description": "List of dependent entity IDs",
+            "items": {
+                "type": "string"
+            }
+        },
+        "relationships": {
+            "type": "array",
+            "description": "Relationships to other entities",
+            "items": {
+                "type": "object",
+                "required": [
+                    "target_id",
+                    "relationship_type"
+                ],
+                "properties": {
+                    "target_id": {
+                        "type": "string"
+                    },
+                    "relationship_type": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "metadata": {
+            "type": "object",
+            "description": "System metadata managed by MetadataManager",
+            "required": [
+                "source_spec_id",
+                "actor_id",
+                "audit_context"
+            ],
+            "properties": {
+                "source_spec_id": {
+                    "type": "string"
+                },
+                "actor_id": {
+                    "type": "string"
+                },
+                "audit_context": {
+                    "type": "object",
+                    "required": [
+                        "last_transaction_id"
+                    ],
+                    "properties": {
+                        "last_transaction_id": {
+                            "type": "string"
+                        },
+                        "last_operation": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "created_at": {
+            "type": "string",
+            "description": "Creation timestamp (ISO 8601 JST)"
+        },
+        "updated_at": {
+            "type": "string",
+            "description": "Last update timestamp (ISO 8601 JST)"
+        },
+        "created_by": {
+            "type": "string",
+            "description": "Creator actor ID"
+        },
+        "history_ref": {
+            "type": "array",
+            "description": "References to previous versions",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}

@@ -1,5 +1,5 @@
 Source: docs/spec/Core_Spec/NWF_Entity_ID_System_v2.0.1.md
-Updated: 2026-04-04T03:07:00+09:00
+Updated: 2026-05-11T15:23:00+09:00
 PIC: Engineer / ChatGPT
 
 # NWF Entity ID System v2.0.1
@@ -113,6 +113,126 @@ System レベルのIDは全システムで一意でなければならない。
 
 ---
 
+### 3.3 Entity ID Normalization Rule（追加仕様）
+
+Phase 3.5 Validation Integrity 修正に伴い、
+Entity ID の型揺れ防止仕様を正式定義する。
+
+#### 基本原則
+
+- Entity ID は外部I/Fでは常に `str` として扱う
+- Validator / StoryDB / Engine / Audit / Transaction Pipeline は
+  すべて `str` ID を使用する
+- UUID オブジェクトを直接比較・保持・公開してはならない
+- UUID を利用する場合も、I/F境界では `str(UUID)` に正規化する
+
+---
+
+#### 修正前仕様（保持）
+
+従来仕様では：
+
+- UUID v4 を使用する
+
+のみが定義されており、
+
+- Python UUID object を許可するのか
+- I/F上の型を `UUID` と `str` のどちらに統一するのか
+
+が未定義であった。
+
+このため：
+
+- UUID / str 混在
+- dict key 不一致
+- StoryDB lookup failure
+- Validator immutability false negative
+
+などが発生しうる構造であった。
+
+---
+
+#### 修正後仕様（正式採用）
+
+すべての Entity ID / System ID は：
+
+- 保存時
+- 比較時
+- DBアクセス時
+- Validation時
+- Audit時
+- Engine連携時
+
+において `str` に正規化しなければならない。
+
+必須実装例：
+
+target_id = str(entity.id)
+
+StoryDB I/F：
+
+get(entity_id: str) -> Optional[Entity]
+
+UUID比較例：
+
+str(previous.uuid) != str(current.uuid)
+
+---
+
+#### UUID Object カプセル化原則（追加仕様）
+
+UUID object は内部実装詳細としてのみ許可される。
+
+許可される場所：
+
+- ID生成直後
+- UUID生成ユーティリティ内部
+- ORM内部
+- DB Driver内部
+
+禁止事項：
+
+- UUID object の外部返却
+- UUID object のAPI公開
+- UUID object の比較I/F使用
+- UUID object をdict keyとして共有
+- UUID object をValidation境界へ渡すこと
+
+理由：
+
+- Python runtime 差異防止
+- JSON serialization 安定化
+- StoryDB I/F 安定化
+- Mock / Production 一貫性維持
+- Validation deterministic behavior 保証
+- Recursive Integrity 安定化
+
+---
+
+#### Cross-Spec Synchronization
+
+本仕様は以下と同期しなければならない：
+
+- docs/spec/Core_Spec/NWF_Story_Database_v2.0.1.md
+- docs/spec/Execution_Spec/NWF_Consistency_Validator_Spec_v2.0.1_Phase_3.5.md
+- docs/spec/Execution_Spec/NWF_Validation_System_v2.0.1.md
+- docs/spec/Execution_Spec/NWF_Mock_Design_Guideline_v2.0.1.md
+- docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
+
+---
+
+#### Phase 3.5 DoD
+
+本仕様追加により：
+
+- ID型揺れが排除される
+- StoryDB I/F が安定化される
+- Mock / Production 差異が排除される
+- Validation immutability 判定が deterministic 化される
+- UUID比較失敗による false negative が排除される
+
+---
+
 ## 4. Entity Prefix List
 
 各Entityは専用のPrefixを持つ。
@@ -181,6 +301,8 @@ st_
 
 IDの一意性スコープは以下のように定義する。
 
+---
+
 ### Story Entity ID
 
 Story単位で一意
@@ -189,6 +311,31 @@ Story単位で一意
 同じIDを持つEntityは存在してはならない。
 
 別Storyでは同じIDを使用可能。
+
+---
+
+追加仕様（Phase 3.5）：
+
+Story Entity ID は
+I/F上では必ず `str` として扱う。
+
+許可例：
+
+"char_001"
+"scene_010"
+
+禁止例：
+
+UUID("550e8400-e29b-41d4-a716-446655440000")
+
+理由：
+
+- StoryDB lookup 安定化
+- Validation deterministic behavior 維持
+- Engine I/F 統一
+- Mock / Production 差異防止
+
+---
 
 ### System Entity ID
 
@@ -203,6 +350,37 @@ System 全体で一意（UUID）
 - state_transition_id
 
 これらはシステム全体で重複してはならない。
+
+---
+
+修正前仕様（保持）：
+
+「UUID を使用する」とのみ定義されていた。
+
+---
+
+修正後仕様（正式採用）：
+
+UUIDを利用する場合でも、
+外部I/Fでは必ず `str(UUID)` に正規化する。
+
+例：
+
+transaction_id: str
+
+許可：
+
+"550e8400-e29b-41d4-a716-446655440000"
+
+非推奨：
+
+UUID("550e8400-e29b-41d4-a716-446655440000")
+
+禁止：
+
+- UUID object のI/F公開
+- UUID object の永続比較
+- UUID object のValidation入力
 
 ---
 
@@ -337,6 +515,46 @@ IDは一度作成されたら変更してはならない。
 
 ID変更が必要な場合は  
 新しいEntityを作成する。
+
+---
+
+### Phase 3.5 Immutability Synchronization（追加仕様）
+
+本仕様は
+Phase 3.5 Consistency Validator の
+Immutability Check と同期する。
+
+同期対象：
+
+- docs/spec/Execution_Spec/NWF_Consistency_Validator_Spec_v2.0.1_Phase_3.5.md
+- src/integrity/consistency_validator.py
+
+Validator は：
+
+- ID を `str` に正規化した上で
+- previous entity を StoryDB から取得し
+- UUID比較を行う
+
+必須原則：
+
+- ID型揺れを許可しない
+- UUID object をI/F境界へ露出しない
+- Stable ID Principle を Validation Layer でも保証する
+
+---
+
+削除しなかった理由：
+
+旧仕様の
+
+「IDは変更してはならない」
+
+という原則自体は現在も有効であり、
+Phase 3.5 ではその原則を
+Validation Pipeline にまで拡張・厳格化した。
+
+そのため旧仕様は削除せず、
+Immutability Enforcement 仕様として補強する。
 
 ---
 

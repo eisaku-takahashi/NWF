@@ -1,44 +1,20 @@
 """
 Source: src/integrity/validation_result.py
-Updated: 2026-04-23T04:06:00+09:00  # ★Phase 3.4 契約再確認（is_blocking責務明文化・将来拡張コメント追加）
+Updated: 2026-05-03T15:04:00+09:00  # ★修正: 作成日時に更新（Implementation Rules準拠）
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
-    - docs/spec/Execution_Spec/NWF_Validator_And_Context_Contract_v2.0.1.md
     - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
+    - docs/project/NWF_Phase_3.5_Debug_Work_Plan_v20260502.md
     - src/models/nwf_enums.py
 Docstring:
-    ValidationResult データクラス。
+    ValidationResult モジュール。
 
-    Validator の検証結果を immutable な形式で保持し、
-    Engine / Adapter / IntegrityChecker 間のインターフェース統一を保証する。
-
-    ★ Phase 3.4 最終修正内容:
-    - Strict Return Contract 完全準拠
-    - Severity と is_valid の双方向整合性強制（強化）
-    - 成功時の violated_rules 非空禁止（追加）
-    - failure() の severity 制限強化（ERROR/CRITICALのみ許可）
-    - stardate 精度保証（float正規化）
-    - metadata の防御コピー化（外部参照防止）
-    - JSON変換の安定性向上
-
-    ★ Phase 3.4 追加（最重要）:
-    - merge() メソッド導入（唯一の集約手段）
-    - ValidationResult の手動集約禁止ルール明文化
-
-    ★ Phase 3.4 追加修正:
-    - is_blocking() の責務を ValidationResult に統一
-    - Enum依存排除（設計安定化）
-
-    ★ Phase 3.4 契約再確認（今回）:
-    - is_blocking() を「唯一の停止判定契約」として明文化
-    - Engine は severity を直接参照せず、本メソッドを信頼する設計を推奨
-    - 将来のポリシー変更（ERROR昇格等）に対する拡張ポイントを明示
+    Validatorの検証結果を表す immutable データクラスを定義する。
+    Phase 3.5 において I/F契約の完全整合を行い、
+    Validator / Engine / Evaluator 間のデータ整合性を保証する。
 """
 
-# =========================
-# import
-# =========================
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
@@ -46,47 +22,49 @@ from typing import List, Dict, Any
 
 from src.models.nwf_enums import NWFSeverity
 
-# =========================
-# 定数 / 設定
-# =========================
-
+# =========================================================
+# 定数
+# =========================================================
 SUCCESS_CODE: str = ""
 
-# =========================
-# __all__
-# =========================
+# ★追加: scopeの許可値（Spec曖昧性排除）
+ALLOWED_SCOPES = {
+    "SYSTEM_INTEGRITY",
+}
 
+# =========================================================
+# 公開インターフェース
+# =========================================================
 __all__ = [
     "ValidationResult",
 ]
 
-# =========================
-# Classes
-# =========================
-
-
+# =========================================================
+# ValidationResult
+# =========================================================
 @dataclass(frozen=True)
 class ValidationResult:
     """
     ValidationResult は Validator の検証結果を表す immutable データクラス。
 
-    【⚠️ 重要設計ルール（Phase 3.4）】
-    --------------------------------------------------
-    ❌ 以下は禁止:
-        - 複数 ValidationResult を all()/any() 等で集約
-        - 手動で新しい ValidationResult を再生成（集約用途）
-
-    ✅ 必須:
-        - 集約は ValidationResult.merge() のみ使用すること
-
-    なぜ:
-        - Severity の欠落（今回の重大バグ原因）
-        - error_code / message の消失防止
-    --------------------------------------------------
+    I/F契約（Phase 3.5 確定仕様）:
+    - rule_id を必須識別子として使用
+    - severity / scope / target_id を統一的に扱う
+    - failure() / success() により完全固定I/Fを提供
     """
 
-    is_valid: bool
-    severity: NWFSeverity
+    # =========================================================
+    # ★ rule_id（I/F契約: 必須）
+    # =========================================================
+    # 修正前: rule_id: str = ""
+    # 修正後: 必須扱い（空文字禁止は__post_init__で検証）
+    rule_id: str = ""
+
+    # =========================================================
+    # 基本フィールド
+    # =========================================================
+    is_valid: bool = True
+    severity: NWFSeverity = NWFSeverity.INFO
     error_code: str = SUCCESS_CODE
     message: str = ""
     violated_rules: List[str] = field(default_factory=list)
@@ -95,136 +73,129 @@ class ValidationResult:
     stardate: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # =========================================================
+    # Trace系
+    # =========================================================
+    trace_id: str = ""
+    span_id: str = ""
+    source: str = ""
+    target_id: str = ""
+
+    # =========================================================
+    # ★互換レイヤ
+    # =========================================================
+    code: str = ""     # alias
+    scope: str = ""    # alias
+
+    # =========================================================
+    # Post Init
+    # =========================================================
     def __post_init__(self):
         """
-        不変オブジェクトの整合性を保証するための検証処理。
+        初期化後の整合性チェックおよび正規化処理
         """
 
         # -----------------------------
-        # Severity と is_valid の整合性保証
+        # alias 正規化
+        # -----------------------------
+        if self.code and not self.error_code:
+            object.__setattr__(self, "error_code", self.code)
+
+        if self.error_code and not self.code:
+            object.__setattr__(self, "code", self.error_code)
+
+        # -----------------------------
+        # ★ rule_id 必須チェック
+        # -----------------------------
+        if not self.rule_id:
+            raise ValueError("rule_id is required")
+
+        # -----------------------------
+        # ★ scope 検証（Spec準拠）
+        # -----------------------------
+        if self.scope:
+            if self.scope not in ALLOWED_SCOPES:
+                raise ValueError(f"invalid scope: {self.scope}")
+
+        # -----------------------------
+        # Severity と is_valid の整合性
         # -----------------------------
         if self.severity in (NWFSeverity.ERROR, NWFSeverity.CRITICAL):
             if self.is_valid:
-                raise ValueError(
-                    "ERROR/CRITICAL の場合 is_valid は False でなければならない"
-                )
+                raise ValueError("ERROR/CRITICAL の場合 is_valid=False 必須")
+
         elif self.severity == NWFSeverity.INFO:
             if not self.is_valid:
-                raise ValueError(
-                    "INFO の場合 is_valid は True でなければならない"
-                )
+                raise ValueError("INFO の場合 is_valid=True 必須")
 
         # -----------------------------
-        # 成功時の error_code 正規化
-        # -----------------------------
-        if self.is_valid and not self.error_code:
-            object.__setattr__(self, "error_code", SUCCESS_CODE)
-
-        # -----------------------------
-        # 成功時 violated_rules 禁止
+        # violated_rules 制約
         # -----------------------------
         if self.is_valid and self.violated_rules:
-            raise ValueError(
-                "is_valid=True の場合 violated_rules は空でなければならない"
-            )
+            raise ValueError("is_valid=True の場合 violated_rules は空")
 
         # -----------------------------
-        # 型保証
+        # ★ violated_rules と rule_id の関係明確化
         # -----------------------------
-        if not isinstance(self.violated_rules, list):
-            raise TypeError("violated_rules は List[str] である必要がある")
+        # 理由:
+        # - rule_id は単一の主識別子
+        # - violated_rules は複数違反の集合
+        # - failure() において最低1件は rule_id を含むことを保証
+        if not self.is_valid:
+            if not self.violated_rules:
+                raise ValueError("violated_rules must not be empty when invalid")
+            if self.rule_id not in self.violated_rules:
+                raise ValueError("violated_rules must include rule_id")
 
+        # -----------------------------
+        # 型チェック
+        # -----------------------------
         if not isinstance(self.metadata, dict):
-            raise TypeError("metadata は Dict[str, Any] である必要がある")
+            raise TypeError("metadata must be dict")
 
-        if not isinstance(self.transaction_id, str):
-            raise TypeError("transaction_id は str である必要がある")
-
-        if not isinstance(self.stardate, (float, int)):
-            raise TypeError("stardate は float である必要がある")
+        if not isinstance(self.trace_id, str):
+            raise TypeError("trace_id must be str")
 
         # -----------------------------
-        # 正規化処理
+        # 正規化
         # -----------------------------
         object.__setattr__(self, "stardate", float(self.stardate))
         object.__setattr__(self, "metadata", dict(self.metadata))
 
-    # =========================
-    # Utility Methods
-    # =========================
-
+    # =========================================================
+    # Utility
+    # =========================================================
     def to_dict(self) -> Dict[str, Any]:
-        """JSONシリアライズ"""
+        """
+        dict形式に変換
+        """
         result = asdict(self)
         result["severity"] = self.severity.name
         return result
 
     def is_blocking(self) -> bool:
         """
-        ★ Phase 3.4 修正（最重要）
-        ★ Phase 3.4 契約再確認（今回）
-
-        【修正前】
-        return self.severity.is_blocking()
-
-        【問題点】
-        - Enumにロジックを委譲している
-        - ValidationResultの責務が不明確
-        - Engineとの結合が強くなる
-
-        【修正後】
-        - ValidationResult自身がblocking判定を持つ
-        - 単一責務原則に従う
-        - Engineは本メソッドのみを参照すべき（推奨）
-
-        【現在仕様】
-        - CRITICALのみがシステム停止条件
-
-        【設計意図（重要）】
-        - Engineは「停止判定ロジック」を持たない
-        - ValidationResultが「停止信号」を保持する
-        → Pipelineの責務分離を維持
-
-        【将来拡張余地】
-        - ERRORを条件付きでblockingに昇格可能
-        - Policy注入（設定ファイル・Context依存）へ拡張可能
-
-        【注意】
-        - Engine側にフォールバックとして severity 比較が残っていてもよいが、
-          最終的には本メソッドへ完全統一することが望ましい
+        CRITICAL判定
         """
-
-        # -----------------------------
-        # ★ 現行実装（単純判定）
-        # -----------------------------
         return self.severity == NWFSeverity.CRITICAL
 
-        # -----------------------------
-        # ★ 将来拡張例（コメントとして保持）
-        # -----------------------------
-        # if self.severity == NWFSeverity.CRITICAL:
-        #     return True
-        #
-        # if self.severity == NWFSeverity.ERROR:
-        #     return self.metadata.get("escalate_to_blocking", False)
-        #
-        # return False
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ValidationResult):
+            return False
+        return self.to_dict() == other.to_dict()
 
-    # =========================
-    # ★ Phase 3.4 追加（最重要）
-    # =========================
+    # =========================================================
+    # merge
+    # =========================================================
     @classmethod
     def merge(cls, results: List["ValidationResult"]) -> "ValidationResult":
+        """
+        複数結果のマージ
+        """
 
-        # -----------------------------
-        # 空配列防御（契約違反）
-        # -----------------------------
         if not results:
-            raise RuntimeError("ValidationResult.merge(): empty results")
+            raise RuntimeError("merge(): empty")
 
-        # -----------------------------
-        # Severity優先度定義
-        # -----------------------------
         priority = {
             NWFSeverity.INFO: 0,
             NWFSeverity.WARNING: 1,
@@ -232,106 +203,131 @@ class ValidationResult:
             NWFSeverity.CRITICAL: 3,
         }
 
-        # -----------------------------
-        # 最大Severity選択
-        # -----------------------------
         max_result = max(results, key=lambda r: priority[r.severity])
         is_valid = all(r.is_valid for r in results)
 
-        # -----------------------------
-        # メッセージ統合
-        # -----------------------------
         messages = [r.message for r in results if r.message]
-        combined_message = " | ".join(messages) if messages else ""
 
-        # -----------------------------
-        # violated_rules 統合
-        # -----------------------------
-        all_rules: List[str] = []
-        for r in results:
-            all_rules.extend(r.violated_rules)
-
-        # -----------------------------
-        # 新規インスタンス生成（唯一の合法集約）
-        # -----------------------------
         return cls(
+            rule_id=max_result.rule_id,
             is_valid=is_valid,
             severity=max_result.severity if not is_valid else NWFSeverity.INFO,
             error_code=max_result.error_code,
-            message=combined_message,
-            violated_rules=all_rules,
+            message=" | ".join(messages),
+            violated_rules=[x for r in results for x in r.violated_rules],
             transaction_id=max_result.transaction_id,
             stardate=max_result.stardate,
-            metadata={"merged": True}
+            metadata={"merged": True},
+            trace_id=max_result.trace_id,
+            span_id=max_result.span_id,
+            source="merge",
+            target_id=max_result.target_id,
+            scope=max_result.scope,
         )
 
-    # =========================
-    # Factory Methods
-    # =========================
+    # =========================================================
+    # Factory
+    # =========================================================
 
+    # ---------------------------------------------------------
+    # 修正前（削除・コメント化）
+    # ---------------------------------------------------------
+    # @staticmethod
+    # def success(**kwargs) -> "ValidationResult":
+    #     return ValidationResult(
+    #         is_valid=True,
+    #         severity=NWFSeverity.INFO,
+    #         **kwargs
+    #     )
+    #
+    # 削除理由:
+    # - kwargs による I/F曖昧性
+    # - Spec Driven Development違反
+    # - failure() との非対称性
+
+    # ---------------------------------------------------------
+    # 修正後（I/F完全固定）
+    # ---------------------------------------------------------
     @staticmethod
     def success(
+        rule_id: str,
+        target_id: str,
+        scope: str,
         message: str = "",
-        transaction_id: str = "",
-        stardate: float = 0.0,
         metadata: Dict[str, Any] | None = None,
     ) -> "ValidationResult":
+        """
+        成功結果生成（INFO）
+
+        修正内容:
+        - failure() と完全対称なI/F構造
+        - kwargs 排除
+        - 必須項目を明示化
+        """
+
+        # ★必須チェック
+        if not rule_id:
+            raise ValueError("rule_id is required")
+
+        if not target_id:
+            raise ValueError("target_id is required")
+
+        if not scope:
+            raise ValueError("scope is required")
+
         return ValidationResult(
+            rule_id=rule_id,
             is_valid=True,
             severity=NWFSeverity.INFO,
-            error_code=SUCCESS_CODE,
             message=message,
             violated_rules=[],
-            transaction_id=transaction_id,
-            stardate=stardate,
+            target_id=target_id,
+            scope=scope,
             metadata=metadata or {},
         )
 
     @staticmethod
     def failure(
         severity: NWFSeverity,
-        error_code: str,
         message: str,
+        rule_id: str,
+        target_id: str,
+        scope: str,
+        error_code: str = "",
         violated_rules: List[str] | None = None,
-        transaction_id: str = "",
-        stardate: float = 0.0,
-        metadata: Dict[str, Any] | None = None,
     ) -> "ValidationResult":
+        """
+        失敗結果生成（ERROR / CRITICAL）
 
-        # -----------------------------
-        # severity制約（契約）
-        # -----------------------------
+        修正内容:
+        - I/Fを完全固定（Work Planと100%一致）
+        - kwargs廃止
+        - rule_id / target_id / scope を必須化
+        """
+
         if severity not in (NWFSeverity.ERROR, NWFSeverity.CRITICAL):
-            raise ValueError(
-                "failure() では severity は ERROR または CRITICAL のみ許可される"
-            )
+            raise ValueError("failure(): ERROR/CRITICAL only")
+
+        # ★必須チェック
+        if not rule_id:
+            raise ValueError("rule_id is required")
+
+        if not target_id:
+            raise ValueError("target_id is required")
+
+        if not scope:
+            raise ValueError("scope is required")
 
         return ValidationResult(
+            rule_id=rule_id,
             is_valid=False,
             severity=severity,
             error_code=error_code,
             message=message,
-            violated_rules=violated_rules or [],
-            transaction_id=transaction_id,
-            stardate=stardate,
-            metadata=metadata or {},
+            violated_rules=violated_rules or [rule_id],
+            target_id=target_id,
+            scope=scope,
         )
 
-
-# =========================
-# Main Guard
-# =========================
-
-if __name__ == "__main__":
-
-    r1 = ValidationResult.success(message="ok1")
-    r2 = ValidationResult.failure(
-        severity=NWFSeverity.ERROR,
-        error_code="ERR_TEST",
-        message="error occurred"
-    )
-
-    merged = ValidationResult.merge([r1, r2])
-    print(merged.to_dict())
 
 # [EOF]

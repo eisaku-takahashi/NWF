@@ -1,6 +1,6 @@
 """
 Source: tests/unit/test_validator_critical_only.py
-Updated: 2026-04-23T06:22:00+09:00  # ★Phase 3.4 Engine単体CRITICAL停止テスト統合（evaluate接続）
+Updated: 2026-05-02T19:57:00+09:00  # ★Phase 3.5 MockStoryDB I/F準拠化対応
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
@@ -18,10 +18,13 @@ Docstring:
     - IMMUTABILITY_BREACH が CRITICAL に正しくマッピングされることを確認
     - Severity Monotonicity Rule の起点（生成点）を検証
 
-    ★Phase 3.4 最終拡張（今回）:
+    ★Phase 3.4:
     - Engine.evaluate_validation_results() を直接呼び出し
     - Engine単体でもCRITICAL停止が発火することを検証
-    - Pipeline非依存での最終停止保証
+
+    ★Phase 3.5:
+    - MockStoryDB を story_db.get() I/F に準拠させる
+    - ValidatorとのI/F断絶を完全排除
 
     注意：
     - story_db を利用して過去状態を注入し、意図的に不変性違反を発生させる
@@ -65,16 +68,47 @@ class DummyEntity:
 
 class MockStoryDB:
     """
-    過去状態を返すモックDB
+    StoryDBのI/Fに準拠したモックDB
+
+    目的：
+    - Validatorが依存する story_db.get(entity_id) のみを提供
+    - 内部構造を隠蔽（I/F経由アクセスの強制）
     """
 
-    def __init__(self, previous_entities):
-        self.previous_entities = previous_entities
+    # -----------------------------
+    # 修正前コード（削除せず記録）
+    # -----------------------------
+    # 理由：
+    # - Validatorは get_previous_state を使用していない
+    # - I/F不整合の原因となっていたため廃止
+    #
+    # def __init__(self, previous_entities):
+    #     self.previous_entities = previous_entities
+    #
+    # def get_previous_state(self, transaction_id: str):
+    #     return {
+    #         "global_vars": self.previous_entities
+    #     }
 
-    def get_previous_state(self, transaction_id: str):
-        return {
-            "global_vars": self.previous_entities
-        }
+    # -----------------------------
+    # 修正後コード（I/F準拠）
+    # -----------------------------
+    def __init__(self, data: dict):
+        # 内部データ（外部非公開）
+        self._data = data
+
+    def get(self, entity_id: str):
+        """
+        entity_id に対応する過去Entityを取得する
+
+        Args:
+            entity_id (str): エンティティID
+
+        Returns:
+            Optional[Entity]: 過去状態（存在しない場合はNone）
+        """
+        # IDをstrに正規化（Spec準拠）
+        return self._data.get(str(entity_id))
 
 
 # =========================================================
@@ -83,6 +117,12 @@ class MockStoryDB:
 def create_context(current_entities):
     """
     WorkflowContext生成
+
+    Args:
+        current_entities (dict): 現在のエンティティ群
+
+    Returns:
+        WorkflowContext
     """
 
     context = WorkflowContext(
@@ -94,7 +134,7 @@ def create_context(current_entities):
 
     context.transaction_id = str(uuid.uuid4())
 
-    # ★ Validatorが参照するため直接注入
+    # Validatorが参照する現在状態
     context.global_vars = current_entities
 
     return context
@@ -110,16 +150,13 @@ class TestValidatorCriticalOnly(unittest.TestCase):
         IMMUTABILITY_BREACH → CRITICAL が生成されること
 
         検証内容：
-        - uuid を変更した場合に violation が発生
-        - その violation が CRITICAL にマッピングされる
-
-        ★追加検証（Phase 3.4）:
-        - Engine.evaluate に渡した場合も停止すること
-        - Pipeline非依存でCRITICALが維持されること
+        - uuid変更で violation が発生
+        - CRITICALにマッピングされる
+        - Engineで停止する
         """
 
         # -----------------------------
-        # 旧状態（DB側）
+        # 旧状態（DB）
         # -----------------------------
         prev_entity = DummyEntity("entity_001", "UUID_OLD")
 
@@ -132,7 +169,7 @@ class TestValidatorCriticalOnly(unittest.TestCase):
         # -----------------------------
         # 現在状態（変更あり）
         # -----------------------------
-        current_entity = DummyEntity("entity_001", "UUID_NEW")  # ← 変更
+        current_entity = DummyEntity("entity_001", "UUID_NEW")
 
         current_entities = {
             "entity_001": current_entity
@@ -148,7 +185,7 @@ class TestValidatorCriticalOnly(unittest.TestCase):
         results = validator.validate(context, current_entity)
 
         # -----------------------------
-        # デバッグ出力（明示的トレース）
+        # デバッグ出力
         # -----------------------------
         print("DEBUG results:", results)
         print("DEBUG severities:", [r.severity for r in results])
@@ -156,39 +193,20 @@ class TestValidatorCriticalOnly(unittest.TestCase):
         # -----------------------------
         # 検証（Validator単体）
         # -----------------------------
-        # ★ 少なくとも1件は存在
         self.assertTrue(len(results) > 0)
 
-        # ★ CRITICALが含まれること
         self.assertTrue(
             any(r.severity == NWFSeverity.CRITICAL for r in results),
             "IMMUTABILITY_BREACH が CRITICAL に昇格していない"
         )
 
-        # =====================================================
-        # ★ Phase 3.4 追加: Engine単体停止テスト
-        # =====================================================
+        # -----------------------------
+        # Engine停止検証
+        # -----------------------------
+        engine = StoryEngine(adapter=None)
 
-        # -----------------------------
-        # 修正前（保持）
-        # -----------------------------
-        # 旧設計では Engine を経由しないため、
-        # CRITICALが実際に停止に結びつくかは未検証だった
-        #
-        # 問題:
-        # - Pipeline終端保証が存在しない
-        # - CRITICALが「観測値」で終わる可能性
-
-        # -----------------------------
-        # 修正後（Engine.evaluate使用）
-        # -----------------------------
-        engine = StoryEngine(adapter=None)  # Validator単体テストのためAdapter不要
-
-        # ★追加ログ（Engine注入直前）
         print("[TEST → Engine]", [r.severity for r in results])
 
-        # ★最重要検証:
-        # Engine単体でもCRITICALで停止すること
         with self.assertRaises(RuntimeError):
             engine.evaluate_validation_results(results)
 

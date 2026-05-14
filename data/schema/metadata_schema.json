@@ -1,7 +1,7 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "NWF Metadata Schema v2.0.1",
-    "description": "Metadata schema for NWF Entities. Defines audit, workflow, and traceability information.",
+    "description": "Metadata schema for NWF Entities. Defines audit, workflow, and traceability information with JSON DSL support.",
     "type": "object",
     "required": [
         "source_spec_id",
@@ -45,7 +45,8 @@
                     "format": "date-time",
                     "description": "Last update timestamp (ISO 8601 JST)."
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "workflow_context": {
             "type": "object",
@@ -63,8 +64,38 @@
                 },
                 "execution_id": {
                     "type": "string"
+                },
+                "validation_thresholds": {
+                    "type": "object",
+                    "description": "Scope-based error thresholds for EscalationEvaluator.",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "minimum": 0
+                    }
+                },
+                "validation_policies": {
+                    "type": "object",
+                    "description": "Escalation and validation behavior policies.",
+                    "properties": {
+                        "thresholds": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        },
+                        "escalation_mode": {
+                            "type": "string",
+                            "enum": [
+                                "strict",
+                                "lenient"
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "traceability": {
             "type": "object",
@@ -92,8 +123,56 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "validation_state": {
+                    "type": "object",
+                    "description": "Deterministic validation execution state.",
+                    "required": [
+                        "validation_version",
+                        "rule_set_hash",
+                        "is_deterministic"
+                    ],
+                    "properties": {
+                        "validation_version": {
+                            "type": "string",
+                            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+                        },
+                        "last_transaction_id": {
+                            "type": "string",
+                            "description": "Reference transaction ID for validation context."
+                        },
+                        "rule_set_hash": {
+                            "type": "string",
+                            "description": "SHA256 hash of applied World Rules."
+                        },
+                        "evaluation_engine_version": {
+                            "type": "string"
+                        },
+                        "is_deterministic": {
+                            "type": "boolean",
+                            "const": true
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "dsl_context": {
+                    "type": "object",
+                    "description": "DSL evaluation snapshot context.",
+                    "properties": {
+                        "applied_rule_hashes": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "evaluation_engine_version": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "version_info": {
             "type": "object",
@@ -108,7 +187,8 @@
                 "spec_version": {
                     "type": "string"
                 }
-            }
+            },
+            "additionalProperties": false
         },
         "custom_attributes": {
             "type": "object",

@@ -1,0 +1,111 @@
+============================================================
+NWF Phase 2.1 Integration Test
+============================================================
+
+[T1] ID Generator
+  T1a [PASS] All ID formats match PREFIX-UUIDv4 pattern
+         -> TXN=TXN-c5b93f1c...  LOG=LOG-6365355a...  CHR=CHR-b3b4a065...  EVT=EVT-373e832a...
+  T1b [PASS] validate_id() works correctly
+  T1c [WARN] UUID version check (spec vs impl)
+         -> Impl: uuid.uuid4() (v4)
+         -> NWF_Kernel_Core_Concept_Spec: 'UUID v7' required
+         -> NWF_Entity_ID_System_Spec: 'UUID v4' specified
+         -> => DISCREPANCY D1: Two specs conflict on UUID version
+
+[T2] AuditLogManager Transaction
+  T2a [PASS] begin_transaction() -> TXN-452098ee7cf1419c...
+  T2b [PASS] record_event() executed without error
+  T2c [PASS] JSONL append confirmed: 2026-04-06.jsonl (8 entries)
+  T2d [PASS] integrity_hash field present in all entries
+  T2e [PASS] verify_integrity() hash check passed
+  T2f [PASS] record_event without transaction -> RuntimeError guard
+         -> Transaction not started
+  T2g [WARN] Log file naming convention
+         -> Spec (NWF_Kernel_Audit_System_Spec): audit_20260406.jsonl
+         -> AuditLogManager impl: 2026-04-06.jsonl
+         -> => DISCREPANCY D2: filename format mismatch
+  T2h [PASS] AuditLogger.py naming (audit_YYYYMMDD.jsonl) matches spec
+
+[T3] DataStateManager State Transition
+  T3a [PASS] DRAFT -> REVIEW transition
+  T3b [PASS] DRAFT -> APPROVED (invalid) raises ValueError
+         -> Invalid state transition: DRAFT -> APPROVED
+  T3c [PASS] ARCHIVED -> DRAFT (invalid) raises ValueError
+         -> Invalid state transition: ARCHIVED -> DRAFT
+
+  Transition tables:
+    DataStateMachine : {'DRAFT': ['REVIEW'], 'REVIEW': ['DRAFT', 'APPROVED'], 'APPROVED': ['RELEASED'], 'RELEASED': ['ARCHIVED'], 'ARCHIVED': []}
+    DataStateManager : {'DRAFT': ['REVIEW', 'ARCHIVED'], 'REVIEW': ['APPROVED', 'DRAFT', 'ARCHIVED'], 'APPROVED': ['FROZEN', 'ARCHIVED'], 'FROZEN': ['ARCHIVED'], 'ARCHIVED': []}
+  T3d [FAIL] DataStateMachine vs DataStateManager transition table match
+         -> Mismatches:
+         ->   RELEASED: Machine=['ARCHIVED'], Manager=[]
+         ->   DRAFT: Machine=['REVIEW'], Manager=['ARCHIVED', 'REVIEW']
+         ->   APPROVED: Machine=['RELEASED'], Manager=['ARCHIVED', 'FROZEN']
+         ->   FROZEN: Machine=[], Manager=['ARCHIVED']
+         ->   REVIEW: Machine=['APPROVED', 'DRAFT'], Manager=['APPROVED', 'ARCHIVED', 'DRAFT']
+         -> => DISCREPANCY D3
+  T3e [FAIL] EntityManager.archive_entity -> DataStateManager.change_state signature match
+         -> EntityManager L237: self.state_manager.change_state(subject_id, 'ARCHIVED', actor_id)
+         -> DataStateManager.change_state expects: (entity: Dict, new_state, actor_id)
+         -> Passing a str where Dict is expected -> AttributeError at runtime
+         -> => DISCREPANCY D4
+
+[T4] MetadataManager
+  T4a [PASS] initialize_metadata() required fields present
+         -> actor_id=USR-TAKAHASHI, created_at=2026-04-06T00:13:30.025920+09:00
+  T4b [PASS] update_metadata() audit_context.last_transaction_id set
+  T4c [PASS] validate_metadata() passes
+  T4d [WARN] EntityManager metadata vs MetadataManager output structure
+         -> EntityManager.create_entity builds: {created_at, updated_at, actor_id}
+         -> MetadataManager.initialize_metadata builds: {source_spec_id, actor_id, created_at,
+         ->   updated_at, audit_context, traceability, extensions}
+         -> EntityManager does NOT call MetadataManager
+         -> => DISCREPANCY D5: metadata structure incomplete in EntityManager
+
+[T5] EntityManager integration
+  T5a [FAIL] AuditLogger.log_event() exists
+         -> EntityManager calls audit_logger.log_event(...) but method does not exist
+         -> AuditLogger only has handle_event(event)
+         -> => DISCREPANCY D6: AttributeError at runtime when audit_logger is wired
+  T5b [FAIL] EntityManager attribute names vs NWFObject fields
+         -> EntityManager uses: subject_id, entity_type, state, relationships, version
+         -> NWFObject defines:  id,         type,         status, dependencies, version
+         -> => DISCREPANCY D7: Attribute name mismatch causes AttributeError at runtime
+  T5c [FAIL] create_entity() executes
+         -> NWFObject.__init__() got an unexpected keyword argument 'subject_id'
+  T5e [PASS] Duplicate entity ValueError guard
+         -> NWFObject.__init__() got an unexpected keyword argument 'subject_id'
+  T5f [FAIL] Entity persisted as JSON
+         -> File not found
+
+============================================================
+SUMMARY
+============================================================
+  PASS : 16
+  FAIL : 6
+  WARN : 3
+  TOTAL: 25
+
+--- FAIL list ---
+  [T3d] DataStateMachine vs DataStateManager transition table match
+       Mismatches:
+         RELEASED: Machine=['ARCHIVED'], Manager=[]
+         DRAFT: Machine=['REVIEW'], Manager=['ARCHIVED', 'REVIEW']
+  [T3e] EntityManager.archive_entity -> DataStateManager.change_state signature match
+       EntityManager L237: self.state_manager.change_state(subject_id, 'ARCHIVED', actor_id)
+       DataStateManager.change_state expects: (entity: Dict, new_state, actor_id)
+       Passing a str where Dict is expected -> AttributeError at runtime
+  [T5a] AuditLogger.log_event() exists
+       EntityManager calls audit_logger.log_event(...) but method does not exist
+       AuditLogger only has handle_event(event)
+       => DISCREPANCY D6: AttributeError at runtime when audit_logger is wired
+  [T5b] EntityManager attribute names vs NWFObject fields
+       EntityManager uses: subject_id, entity_type, state, relationships, version
+       NWFObject defines:  id,         type,         status, dependencies, version
+       => DISCREPANCY D7: Attribute name mismatch causes AttributeError at runtime
+  [T5c] create_entity() executes
+       NWFObject.__init__() got an unexpected keyword argument 'subject_id'
+  [T5f] Entity persisted as JSON
+       File not found
+
+[EOF]

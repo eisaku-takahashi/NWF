@@ -1,0 +1,20 @@
+============================================================
+Traceback (most recent call last):
+NWF Phase 2.1 Integration Test
+============================================================
+
+[T1] ID Generator テスト
+  File "D:\NWF\tmp\nwf_integration_test.py", line 66, in <module>
+    log_result("T1a", f"ID形式 ({label}): {val}", "PASS")
+  File "D:\NWF\tmp\nwf_integration_test.py", line 38, in log_result
+    print(f"  [{test_id}] {icon} {name}")
+UnicodeEncodeError: 'cp932' codec can't encode character '\u2705' in position 8: illegal multibyte sequence
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\NWF\tmp\nwf_integration_test.py", line 88, in <module>
+    log_result("T1", "IDGenerator インポート/実行", "FAIL", traceback.format_exc())
+  File "D:\NWF\tmp\nwf_integration_test.py", line 38, in log_result
+    print(f"  [{test_id}] {icon} {name}")
+UnicodeEncodeError: 'cp932' codec can't encode character '\u274c' in position 7: illegal multibyte sequence

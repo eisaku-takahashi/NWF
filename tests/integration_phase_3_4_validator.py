@@ -1,6 +1,6 @@
 """
 Source: tests/integration_phase_3_4_validator.py
-Updated: 2026-04-23T06:09:00+09:00  # ★Phase 3.4 ログトレース最終強化（Engine終端ログ追加）
+Updated: 2026-04-29T16:29:00+09:00  # ★Phase 3.5 テスト順序依存排除対応
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
@@ -32,6 +32,10 @@ Docstring:
     - Engine評価直前ログの明示追加
     - Validator → Adapter → Engine の完全トレース可視化
     - CRITICAL到達から停止までのログ一貫性確認
+
+    ★Phase 3.5 修正（重要）:
+    - results[0] 依存の完全排除（順序未定義仕様への準拠）
+    - 順序に依存しない検証（any / 集合ベース）へ変更
 
     テストは完全に決定論的であり、副作用を持たない。
 """
@@ -160,10 +164,6 @@ class TestPhase34ValidatorIntegration(unittest.TestCase):
     # 正常系
     # -----------------------------------------------------
     def test_normal_flow(self):
-        """
-        INFO のみ → Engine が正常完了する
-        """
-
         result = create_validation_result(NWFSeverity.INFO)
         validator = MockValidator(result)
         adapter = ValidatorIntegrationAdapter([validator])
@@ -174,136 +174,60 @@ class TestPhase34ValidatorIntegration(unittest.TestCase):
         adapted = adapter.validate(self.context, self.entity)
         print("DEBUG [Adapter]:", [r.severity for r in adapted])
 
-        # ★追加: Engine直前ログ（可視化強化）
         print("[TEST → Engine PRE]", [r.severity for r in adapted])
 
         engine = StoryEngine(adapter)
-
         timeline = engine.generate_story_graph([self.entity], self.context)
 
         self.assertIsInstance(timeline, list)
 
     # -----------------------------------------------------
-    # WARNING系
-    # -----------------------------------------------------
     def test_warning_flow(self):
-        """
-        WARNING → Engine 継続
-        """
-
         result = create_validation_result(NWFSeverity.WARNING)
         validator = MockValidator(result)
         adapter = ValidatorIntegrationAdapter([validator])
 
-        raw = validator.validate(self.context, self.entity)
-        print("DEBUG [Validator]:", getattr(raw, "severity", raw))
-
         adapted = adapter.validate(self.context, self.entity)
-        print("DEBUG [Adapter]:", [r.severity for r in adapted])
-
-        # ★追加: Engine直前ログ
         print("[TEST → Engine PRE]", [r.severity for r in adapted])
 
         engine = StoryEngine(adapter)
-
         timeline = engine.generate_story_graph([self.entity], self.context)
 
         self.assertIsInstance(timeline, list)
 
     # -----------------------------------------------------
-    # ERROR系
-    # -----------------------------------------------------
     def test_error_flow(self):
-        """
-        ERROR → Engine 停止（ただしCRITICALではない）
-        """
-
         result = create_validation_result(NWFSeverity.ERROR)
         validator = MockValidator(result)
         adapter = ValidatorIntegrationAdapter([validator])
 
-        raw = validator.validate(self.context, self.entity)
-        print("DEBUG [Validator]:", getattr(raw, "severity", raw))
-
         adapted = adapter.validate(self.context, self.entity)
-        print("DEBUG [Adapter]:", [r.severity for r in adapted])
-
-        # ★追加: Engine直前ログ
         print("[TEST → Engine PRE]", [r.severity for r in adapted])
 
         engine = StoryEngine(adapter)
-
         timeline = engine.generate_story_graph([self.entity], self.context)
 
         self.assertIsInstance(timeline, list)
         self.assertEqual(len(timeline), 0)
 
     # -----------------------------------------------------
-    # CRITICAL系（★最重要修正ポイント）
-    # -----------------------------------------------------
     def test_critical_flow(self):
-        """
-        CRITICAL → 即時停止（Engine.evaluate経由）
-
-        ★修正理由：
-        - 旧テストは generate_story_graph() に依存していた
-        - Validation結果が Engine に「物理的に注入されていなかった」
-        - Engine責務（最終判断）が検証されていなかった
-
-        ★新設計：
-        - Validator → Adapter → Engine.evaluate() の明示的接続
-        - Pipeline終端テストとして成立
-
-        ★今回追加：
-        - Engine評価直前ログの強化
-        - CRITICAL到達の可視化
-        """
-
         result = create_validation_result(NWFSeverity.CRITICAL)
         validator = MockValidator(result)
         adapter = ValidatorIntegrationAdapter([validator])
 
-        # -----------------------------
-        # ★ 伝播ログ（Validator）
-        # -----------------------------
-        raw = validator.validate(self.context, self.entity)
-        print("DEBUG [Validator]:", getattr(raw, "severity", raw))
-
-        # -----------------------------
-        # ★ Adapter後
-        # -----------------------------
         results = adapter.validate(self.context, self.entity)
-        print("DEBUG [Adapter]:", [r.severity for r in results])
+        print("[TEST → Engine]", [r.severity for r in results])
 
         engine = StoryEngine(adapter)
 
-        # -----------------------------
-        # ★ 修正前（保持）
-        # -----------------------------
-        # print("DEBUG [Before Engine]:", [r.severity for r in results])
-
-        # -----------------------------
-        # ★ 修正後（明示ログ）
-        # -----------------------------
-        print("[TEST → Engine]", [r.severity for r in results])
-
-        # ★追加（より明確なログ分離）
-        print("[TRACE] Enter Engine.evaluate_validation_results")
-
-        # -----------------------------
-        # ★ Engine評価
-        # -----------------------------
         with self.assertRaises(RuntimeError):
             engine.evaluate_validation_results(results)
 
     # -----------------------------------------------------
-    # Adapter変換系
+    # Adapter変換系（★修正対象）
     # -----------------------------------------------------
     def test_adapter_legacy_conversion(self):
-        """
-        dict → ValidationResult 変換確認
-        """
-
         validator = LegacyDictValidator()
         adapter = ValidatorIntegrationAdapter([validator])
 
@@ -312,40 +236,35 @@ class TestPhase34ValidatorIntegration(unittest.TestCase):
         print("DEBUG [Adapter Legacy]:", [r.severity for r in results])
 
         self.assertTrue(all(isinstance(r, ValidationResult) for r in results))
-        self.assertEqual(results[0].severity, NWFSeverity.ERROR)
 
-    # -----------------------------------------------------
-    # 複数Validator集約
+        # -------------------------------
+        # 修正前（順序依存あり・NG）
+        # -------------------------------
+        # self.assertEqual(results[0].severity, NWFSeverity.ERROR)
+
+        # -------------------------------
+        # 修正後（順序非依存・OK）
+        # -------------------------------
+        self.assertTrue(
+            any(r.severity == NWFSeverity.ERROR for r in results)
+        )
+
     # -----------------------------------------------------
     def test_multiple_validators(self):
-        """
-        複数Validator結果の集約確認
-        """
-
         v1 = MockValidator(create_validation_result(NWFSeverity.INFO))
         v2 = MockValidator(create_validation_result(NWFSeverity.WARNING))
         v3 = MockValidator(create_validation_result(NWFSeverity.ERROR))
 
         adapter = ValidatorIntegrationAdapter([v1, v2, v3])
-
         results = adapter.validate(self.context, self.entity)
 
-        print("DEBUG [Multiple Validators]:", [r.severity for r in results])
-
-        # ★追加: Engine投入前ログ（複数ケース確認）
         print("[TEST → Engine PRE MULTI]", [r.severity for r in results])
 
         self.assertEqual(len(results), 3)
         self.assertTrue(any(r.severity == NWFSeverity.ERROR for r in results))
 
     # -----------------------------------------------------
-    # Stardate精度
-    # -----------------------------------------------------
     def test_stardate_precision(self):
-        """
-        stardate 比較精度の検証
-        """
-
         epsilon = 0.000001
         a = 1.000001
         b = 1.0000015

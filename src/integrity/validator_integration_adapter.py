@@ -1,6 +1,6 @@
 """
 Source: src/integrity/validator_integration_adapter.py
-Updated: 2026-04-23T04:17:00+09:00  # ★Phase 3.4 ⑥ Adapter整合性最終確認（Severity型保証強化版）
+Updated: 2026-04-29T13:18:00+09:00  # ★Phase 3.5 Adapter安全性保証対応
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
@@ -15,36 +15,9 @@ Docstring:
     StoryEngine と Validator のインターフェース差異を吸収し、
     ValidationResult に正規化する責務を持つ。
 
-    ★ Phase 3.4 修正内容（完全版）:
-    - None返却禁止（契約違反 → RuntimeError）
-    - 空List返却禁止（契約違反 → RuntimeError）
-    - 必ず1件以上のValidationResult保証
-    - ValidationResult再変換禁止
-    - severity上書き禁止（Spec準拠）
-
-    ★ 今回の追加修正（最重要）:
-    - CRITICAL例外を握りつぶさず上位へ伝播
-    - Adapterは「変換」のみ、制御は行わない（責務分離）
-
-    ★ Phase 3.4 追加修正（型保証）:
-    - severityが文字列の場合のEnum強制キャストを追加
-    - 不正値に対する安全なフォールバック処理を実装
-
-    ★ Phase 3.4 最終整合（⑩ Pipeline責務分離）:
-    - Validator → 生成のみ
-    - Adapter → 変換のみ（★ここ）
-    - Auditor → 監査のみ
-    - Engine → 判断のみ
-
-    ★ Phase 3.4 ⑥ 最終確認（今回追加）:
-    - severityは最終的に必ず NWFSeverity 型であることを保証
-    - 変換責務の範囲内で「型の正規化」のみを実施
-    - 意味変更は禁止（Monotonicity Rule維持）
-
-    ❗重要:
-    - Adapterは絶対に「制御」を行わない
-    - Severity変更・集約・フィルタリングは禁止
-    - 情報は非破壊で上位へ伝播する（Pass-through思想）
+    ★ Phase 3.5 追加（最重要）:
+    - ValidationResultの順序に依存しないことを明示
+    - Adapterは順序に一切意味を持たせない
 """
 
 # -------------------------------
@@ -84,13 +57,6 @@ class ValidatorErrorMapper:
 
     @staticmethod
     def infer_severity(is_valid: bool) -> NWFSeverity:
-        """
-        fallback用途のみ
-
-        なぜ必要か:
-        - severityが欠損した場合の最低限の補完
-        - Adapterは「推定」はするが「変更」はしない
-        """
         if is_valid:
             return NWFSeverity.INFO
         return NWFSeverity.CRITICAL
@@ -103,36 +69,20 @@ class ValidatorIntegrationAdapter:
     """
     Validator Integration Adapter
 
-    役割:
-    - Validator結果の正規化（型変換のみ）
+    ❗ Phase 3.5 安全性保証（最重要）:
+    -----------------------------------
+    DO NOT rely on order of ValidationResult list
+    (ValidationResultリストの順序に依存しないでください)
 
-    ❗責務分離（最重要）:
-    - Validator: 生成
-    - Adapter: 変換（ここ）
-    - Auditor: 監査
-    - Engine: 判断
+    Always determine priority by severity/code explicitly
+    (常に重要度/コードに基づいて明示的に優先度を決定してください)
 
-    ❗禁止事項:
-    - Severityの変更
-    - 結果の集約
-    - フィルタリング
-    - 制御ロジック（停止判断など）
+    - resultsの順序には意味がない
+    - Adapterは順序制御・優先順位決定を行わない
+    - 順序はValidator実装依存であり非決定的
     """
 
     def __init__(self, validator: Union[ConsistencyValidator, List[ConsistencyValidator]]) -> None:
-        """
-        Args:
-            validator: 単体 or 複数 Validator
-        """
-
-        # -------------------------------
-        # 修正前
-        # -------------------------------
-        # self.validators = [validator]
-
-        # -------------------------------
-        # 修正後（複数対応）
-        # -------------------------------
         if isinstance(validator, list):
             self.validators = validator
         else:
@@ -147,11 +97,9 @@ class ValidatorIntegrationAdapter:
         """
         実行本体
 
-        Returns:
-            List[ValidationResult]
-
-        Raises:
-            RuntimeError: Contract違反時
+        ❗重要:
+        - results の順序は保証されない（Spec準拠）
+        - 呼び出し側は順序に依存してはならない
         """
 
         results: List[ValidationResult] = []
@@ -160,72 +108,53 @@ class ValidatorIntegrationAdapter:
             try:
                 raw_result = validator.validate(context, target)
 
-                # -------------------------------
-                # Contract防御
-                # -------------------------------
                 if raw_result is None:
                     raise RuntimeError("Validator returned None (Contract violation)")
 
-                # -------------------------------
-                # list処理
-                # -------------------------------
                 if isinstance(raw_result, list):
 
                     if not raw_result:
                         raise RuntimeError("Validator returned empty list (Contract violation)")
 
                     for r in raw_result:
-
-                        # -------------------------------
-                        # 非破壊Pass-through
-                        # -------------------------------
                         if isinstance(r, ValidationResult):
                             results.append(r)
                         else:
                             results.append(self._convert_result(context, r))
 
-                # -------------------------------
-                # 単体処理
-                # -------------------------------
                 else:
-
                     if isinstance(raw_result, ValidationResult):
                         results.append(raw_result)
                     else:
                         results.append(self._convert_result(context, raw_result))
 
             except Exception:
-                # -------------------------------
-                # ★ 修正前（問題点）
-                # -------------------------------
-                # 例外を握りつぶす可能性あり
-
-                # -------------------------------
-                # ★ 修正後（最重要）
-                # -------------------------------
-                # CRITICALは絶対に握りつぶさない
                 raise
 
-        # -------------------------------
-        # Contract保証
-        # -------------------------------
         if not results:
             raise RuntimeError("ValidationResult list is empty after execution (Contract violation)")
+
+        # -------------------------------
+        # ★ Phase 3.5 追加（安全性保証）
+        # -------------------------------
+        # 修正前: 明示なし
+        #
+        # 修正後:
+        # - 順序依存禁止を明文化
+        # - Adapterでは順序を加工しない（sort禁止）
+        # -------------------------------
+        # DO NOT:
+        #   results[0] を意味的に使用
+        #   sortして優先順位を決定
+        #
+        # MUST:
+        #   呼び出し側で severity/code に基づき判断
+        # -------------------------------
 
         return results
 
     def _convert_result(self, context: WorkflowContext, result: Any) -> ValidationResult:
-        """
-        任意型 → ValidationResult 変換
 
-        ❗重要:
-        - これは「変換」のみ
-        - 意味変更は禁止
-        """
-
-        # -------------------------------
-        # bool
-        # -------------------------------
         if isinstance(result, bool):
             is_valid = result
             raw_code = ""
@@ -233,9 +162,6 @@ class ValidatorIntegrationAdapter:
             violated_rules: List[str] = []
             severity = None
 
-        # -------------------------------
-        # dict
-        # -------------------------------
         elif isinstance(result, dict):
             is_valid = result.get("is_valid", True)
             raw_code = result.get("error_code", "")
@@ -244,17 +170,6 @@ class ValidatorIntegrationAdapter:
 
             severity_str = result.get("severity", None)
 
-            # =========================================================
-            # ★ 修正前
-            # =========================================================
-            # severity = NWFSeverity(severity_str)
-
-            # =========================================================
-            # ★ 修正後（Phase 3.4）
-            # =========================================================
-            # - 安全キャスト
-            # - fallbackあり
-            # =========================================================
             if severity_str:
                 try:
                     if isinstance(severity_str, str):
@@ -266,32 +181,14 @@ class ValidatorIntegrationAdapter:
             else:
                 severity = None
 
-        # -------------------------------
-        # ValidationResult互換
-        # -------------------------------
         else:
             try:
                 is_valid = result.is_valid
                 raw_code = result.error_code
                 message = result.message
                 violated_rules = result.violated_rules
-
                 severity = result.severity
 
-                # -------------------------------
-                # ★ Phase 3.4 ⑥ 追加（型保証強化）
-                # -------------------------------
-                # 修正前:
-                # if isinstance(severity, str):
-                #     severity = NWFSeverity[severity]
-                #
-                # 問題:
-                # - 不正文字列で例外発生
-                #
-                # 修正後:
-                # - try/exceptで安全キャスト
-                # - 失敗時はNone→fallbackへ
-                # -------------------------------
                 if isinstance(severity, str):
                     try:
                         severity = NWFSeverity[severity]
@@ -305,21 +202,6 @@ class ValidatorIntegrationAdapter:
                 violated_rules = getattr(result, "violated_rules", [])
                 severity = None
 
-        # -------------------------------
-        # ★ Phase 3.4 ⑥ 追加（最重要）
-        # -------------------------------
-        # severity最終保証
-        #
-        # なぜここで保証するか:
-        # - Adapterは「型の正規化責務」を持つ唯一の層
-        # - Engineは純粋な判断ロジックに集中させるため
-        # - 上流の不正値をここで吸収することで
-        #   Pipeline全体の安定性を担保する
-        #
-        # ❗重要:
-        # - 意味変更ではなく「型保証」
-        # - Monotonicity Ruleを破らない
-        # -------------------------------
         if not isinstance(severity, NWFSeverity):
             severity = self.error_mapper.infer_severity(is_valid)
 
@@ -337,35 +219,6 @@ class ValidatorIntegrationAdapter:
                 "adapter": "ValidatorIntegrationAdapter",
                 "original_error_code": raw_code,
             }
-        )
-
-    def _handle_exception(self, context: WorkflowContext, exception: Exception) -> ValidationResult:
-        """
-        例外 → ValidationResult
-
-        ❗注意:
-        - 本メソッドは現在未使用
-        - Phase 3.4では例外は握りつぶさず上位伝播が原則
-        """
-
-        error_message = str(exception)
-
-        if "CAUSAL" in error_message:
-            error_code = "ERR_WR_002"
-        elif "IMMUTABILITY" in error_message:
-            error_code = "ERR_WR_003"
-        else:
-            error_code = "ERR_LM_001"
-
-        return ValidationResult(
-            is_valid=False,
-            severity=NWFSeverity.CRITICAL,
-            error_code=error_code,
-            message=error_message,
-            violated_rules=[error_code],
-            transaction_id=context.transaction_id,
-            stardate=context.current_stardate,
-            metadata={"exception": True}
         )
 
 

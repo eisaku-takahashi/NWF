@@ -1,223 +1,413 @@
 Source: docs/spec/Core_Spec/NWF_World_Rule_Model_v2.0.1.md
-Updated: 2026-03-21T20:15:00+09:00
+Updated: 2026-04-26T19:00:00+09:00
 PIC: Engineer / ChatGPT
 
-# NWF World Rule Model v2.0.1
+# NWF World Rule Model v2.0.1（Revised: DSL / Action 完全統合版）
 
 ---
 
-## 1. v2.0.0 の限界分析（なぜエンジン化が必要か）
+## 1. 概要
 
-v2.0.0 の World Rule Model は
-物語世界の設定情報を保存する「静的設定データモデル」であり、
-物語の進行やイベント生成に対して直接的な制御能力を持たない。
+本ドキュメントは
+NWF v2.0.1 における World Rule Model の完全定義を示す。
 
-しかし NWF v2.0 では Story Engine / Event Engine / Conflict Engine が
-物語を半自動生成・管理する構造を持つため、
-World Rule は単なる設定資料ではなく、
-物語の整合性を監視し、イベント発生条件を制御する
-「World Rule Engine」として機能する必要がある。
+World Rule は単なる静的設定ではなく、
 
-v2.0.0 の問題点：
+* Story Engine
+* Event Engine
+* Conflict Engine
 
-1. ルール違反の概念が存在しない
-2. Event 発生条件として利用できない
-3. Conflict 生成との関連がない
-4. scope が単一で階層構造がない
-5. Character / Scene とのリンク構造がない
-6. 物語シミュレーションに使用できない
-7. 静的データであり動的制約になっていない
+を制御する **世界制約エンジン（World Rule Engine）** として機能する。
 
-そのため v2.0.1 では
-World Rule を「世界制約エンジン」として再設計する。
+本改訂では以下を達成する：
+
+* JSON DSL による完全決定論的条件評価
+* Rule Action の統一フォーマット定義
+* ValidationResult との完全対応
+* 実行仕様とデータ仕様の一致（Spec = Code）
 
 ---
 
-## 2. World Rule Model v2.0.1 属性定義
+## 2. 基本構造
 
-World Rule は以下の2種類の情報を持つ。
+World Rule は以下の2要素で構成される：
 
-1. Static Settings（静的世界設定）
-2. Dynamic Constraints（動的制約・ルールエンジン）
-
-### 基本属性
-
-world_rule_id  
-rule_name  
-rule_type  
-description  
-
-### スコープ属性
-
-scope_level  
-priority  
-override_allowed  
-
-### 静的設定属性
-
-settings  
-tags  
-
-### 動的制約属性
-
-trigger_logic  
-constraint_conditions  
-violation_consequence  
-conflict_patterns  
-effect  
-
-### リンク属性
-
-linked_entities  
-metadata  
+1. Static Settings（静的設定）
+2. Dynamic Constraints（動的制約 + Action）
 
 ---
 
-## 3. スコープ階層とオーバーライド・ルール
+## 3. 基本属性
 
-World Rule は以下のスコープ階層を持つ。
+* world_rule_id
+* rule_name
+* rule_type
+* description
 
-scope_level:
+---
 
-global  
-regional  
-character  
-scene  
+## 4. スコープ属性
 
-優先順位は以下の通り。
+scope は階層構造を持つ：
+
+* global
+* regional
+* character
+* scene
+
+優先順位：
 
 scene > character > regional > global
 
-上位スコープは下位スコープのルールを上書きできる。
-override_allowed が true の場合のみ上書き可能。
+属性：
 
-例：
-
-global: 魔法は存在しない  
-regional: 王国では魔法研究が許可  
-character: 主人公だけ魔法が使える  
-
-このような階層ルールを許可する。
+* scope_level
+* priority
+* override_allowed
 
 ---
 
-## 4. 改良版 World Rule JSON スキーマ・サンプル
+## 5. 静的設定属性
+
+* settings
+* tags
+
+---
+
+## 6. 動的制約構造（DSL統合）
+
+### 6.1 評価構造
+
+Rule は以下の論理構造で評価される：
+
+trigger_logic（WHEN）
+AND
+constraint_conditions（IF）
+
+両方が true の場合のみ action が発火する。
+
+---
+
+### 6.2 評価順序（決定論）
+
+1. trigger_logic を評価
+2. true の場合のみ constraint_conditions を評価（短絡評価）
+3. true の場合 action 実行
+
+---
+
+### 6.3 DSL ノード構造
+
+■ Comparison Node
 
 {
-  "world_rule": {
-    "world_rule_id": "rule_001",
-    "rule_name": "記憶共有システム",
-    "rule_type": "technology",
-    "description": "人間の記憶を共有できる技術",
-    
-    "scope": {
-      "scope_level": "global",
-      "priority": 1,
-      "override_allowed": false
-    },
+"field": string,
+"op": "==" | "!=" | ">" | "<" | ">=" | "<=",
+"value": any
+}
 
-    "settings": {
-      "memory_share_possible": true,
-      "device_required": true
-    },
+■ Logical Node
 
-    "constraints": {
-      "trigger_logic": "memory_access_without_permission",
-      "constraint_conditions": [
-        "consent_required",
-        "device_connected"
-      ],
-      "violation_consequence": [
-        "legal_penalty",
-        "memory_lock",
-        "conflict_event"
-      ]
-    },
+{
+"operator": "AND" | "OR",
+"operands": [node, ...]
+}
 
-    "conflict_patterns": [
-      "privacy_violation",
-      "memory_theft",
-      "identity_confusion"
-    ],
+■ NOT Node
 
-    "effect": {
-      "event_modifiers": [
-        "memory_event_enabled",
-        "investigation_event_enabled"
-      ]
-    },
+{
+"operator": "NOT",
+"operands": node
+}
 
-    "linked_entities": {
-      "characters": [],
-      "scenes": [],
-      "regions": []
-    },
+■ Exists Node
 
-    "tags": [
-      "technology",
-      "memory",
-      "society"
-    ],
-
-    "metadata": {
-      "created_at": "YYYY-MM-DDTHH:MM:SS+09:00",
-      "updated_at": "YYYY-MM-DDTHH:MM:SS+09:00",
-      "author": "system"
-    }
-  }
+{
+"exists": string
 }
 
 ---
 
-## 5. Story Engine との連携フロー
+### 6.4 評価仕様
 
-World Rule Engine は Story Engine と以下の流れで連携する。
-
-1. Event Engine がイベント候補を生成
-2. World Rule Engine がイベントを検証
-3. ルール違反があるか trigger_logic で判定
-4. 違反する場合 violation_consequence を適用
-5. Conflict Engine が conflict_patterns を参照し葛藤生成
-6. Event を修正または新規 Conflict Event を生成
-7. Story Database に記録
-
-フロー：
-
-Event Candidate  
-→ Rule Check  
-→ Constraint Validation  
-→ Violation Detection  
-→ Consequence  
-→ Conflict Generation  
-→ Event Finalization  
-
-World Rule は以下を制御する。
-
-Event 発生可能条件  
-Character 行動制約  
-Conflict 発生パターン  
-世界設定の整合性  
-ストーリーシミュレーション  
-
-World Rule Model v2.0.1 は
-NWF における「世界の物理法則・社会法則・物語制約」を管理する
-最上位制約エンジンである。
+* 優先順位：NOT > AND > OR
+* operands は配列順に評価
+* 最大ネスト深さ：16
 
 ---
 
-## 6. まとめ
+### 6.5 exists の定義
 
-World Rule Model v2.0.1 は
-単なる世界設定データではなく、
-Story Engine・Event Engine・Conflict Engine を制御する
-世界制約エンジンとして機能する。
+* フィールドが存在し null でない → true
+* "" / [] / {} → true
+* 未定義 or null → false
 
-このモデルは
-Character・Event・Scene・Conflict の行動可能性を制限し、
-物語世界の整合性を維持する。
+---
 
-World Rule は
-NWF における「世界の神の視点」をデータ化したモデルである。
+### 6.6 エラー時挙動（例外禁止）
+
+| ケース      | 挙動              |
+| -------- | --------------- |
+| フィールド未存在 | False           |
+| 型不一致     | False（!=のみTrue） |
+| None比較   | False           |
+| 不正オペレータ  | False           |
+| 不正構造     | False           |
+| ネスト深度超過  | False           |
+
+---
+
+### 6.7 評価制約
+
+* Pure Function
+* Deterministic
+* No Exception
+* No Side Effect
+
+---
+
+## 7. Rule Action フォーマット
+
+### 7.1 基本仕様
+
+Rule は 1:N Actions を持つ。
+
+actions は配列順に実行されるが、互いに独立である。
+
+---
+
+### 7.2 Action 属性
+
+必須：
+
+* severity
+* code
+* message
+
+任意：
+
+* primary_target
+* params
+
+---
+
+### 7.3 Severity
+
+* INFO
+* WARNING
+* ERROR
+* CRITICAL
+
+---
+
+### 7.4 Code 命名規則
+
+形式：
+
+[SCOPE_INITIAL]-[CATEGORY]-[SEQUENCE]
+
+例：
+
+* G-GEN-001
+* C-STA-002
+
+---
+
+### 7.5 Message テンプレート
+
+プレースホルダ：
+
+* {field}
+* {value}
+* {rule_id}
+* {target_id}
+
+未解決時：
+
+→ そのまま文字列として残す
+
+---
+
+### 7.6 Params
+
+params は DSL評価コンテキストから値を取得する。
+
+例：
+
+"params": {
+"value": "$.character.hp"
+}
+
+---
+
+### 7.7 primary_target
+
+* 明示指定可能
+* 未指定時は root entity の target_id
+
+---
+
+## 8. ValidationResult 変換仕様
+
+| Action   | ValidationResult |
+| -------- | ---------------- |
+| severity | severity         |
+| code     | code             |
+| message  | 解決済み message     |
+| N/A      | trace_id         |
+| N/A      | span_id          |
+| N/A      | source           |
+| N/A      | target_id        |
+
+---
+
+### 8.1 固定値
+
+* source = "rule_evaluator"
+* trace_id = context.trace_id
+
+---
+
+### 8.2 span_id 生成
+
+span_id = hash(rule_id + action_index + target_id + execution_id)
+
+---
+
+## 9. 実行順序（決定論）
+
+Rule 実行順：
+
+1. scope 適用
+2. priority
+3. rule_id（ASCII昇順）
+
+---
+
+## 10. Escalation 仕様
+
+条件：
+
+* 同一 scope 内 ERROR 件数 > threshold
+
+結果：
+
+* CRITICAL を1件追加
+
+制約：
+
+* Monotonic（降格なし）
+* 入力不変
+
+---
+
+## 11. フル JSON スキーマ
+
+{
+"$schema": "[http://json-schema.org/draft-07/schema#](http://json-schema.org/draft-07/schema#)",
+"title": "NWF World Rule Full Schema",
+"type": "object",
+"required": ["rule_id", "actions"],
+"properties": {
+"rule_id": { "type": "string", "pattern": "^RULE-[A-Z0-9_-]+$" },
+"enabled": { "type": "boolean", "default": true },
+"trigger_logic": { "$ref": "dsl_condition_schema.json#" },
+"constraint_conditions": { "$ref": "dsl_condition_schema.json#" },
+"actions": {
+"type": "array",
+"minItems": 1,
+"items": {
+"type": "object",
+"required": ["severity", "code", "message"],
+"properties": {
+"severity": {
+"enum": ["INFO", "WARNING", "ERROR", "CRITICAL"]
+},
+"code": { "type": "string" },
+"message": { "type": "string" },
+"primary_target": { "type": "string" },
+"params": {
+"type": "object",
+"additionalProperties": { "type": "string" }
+}
+}
+}
+}
+},
+"additionalProperties": false
+}
+
+---
+
+## 12. Story Engine 連携フロー
+
+Event Candidate
+→ Rule Check
+→ Constraint Evaluation
+→ Violation Detection
+→ Action Execution
+→ Conflict Generation
+→ Event Finalization
+
+---
+
+## 13. World Rule の責務
+
+* Event 発生制御
+* Character 行動制約
+* Conflict 生成
+* 世界整合性維持
+* シミュレーション制御
+
+---
+
+## 14. セキュリティ制約
+
+禁止：
+
+* eval / exec / import
+* JSONPath ワイルドカード（$, .., *）
+
+許可：
+
+* ドット記法のみ
+
+---
+
+## 15. 非推奨要素
+
+constraint_conditions（文字列形式）
+
+理由：
+
+* 非決定論
+* 実行不能
+
+---
+
+## 16. Cross-Spec Synchronization
+
+本仕様は以下と同期：
+
+* NWF_World_Rule_Execution_v2.0.1.md
+* NWF_Rule_Data_Binding_Spec_v2.0.1.md
+* NWF_Validator_And_Context_Contract_v2.0.1.md
+
+---
+
+## 17. 結論
+
+本仕様により World Rule Model は：
+
+* 完全決定論的 DSL を持つ
+* Action を通じて ValidationResult を生成する
+* Engine と完全一致する実行モデルとなる
+
+これにより NWF は：
+
+「仕様＝実行可能コード」
+
+という状態に到達する。
 
 ---
 

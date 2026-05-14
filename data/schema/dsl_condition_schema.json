@@ -1,0 +1,60 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://nwf.io/schema/dsl_condition.json",
+    "title": "NWF DSL Condition Schema",
+    "description": "Deterministic JSON DSL schema for World Rule condition evaluation in NWF Phase 3.5",
+    "type": "object",
+    "required": [
+        "operator"
+    ],
+    "properties": {
+        "operator": {
+            "type": "string",
+            "enum": [
+                "==",
+                "!=",
+                ">",
+                "<",
+                ">=",
+                "<=",
+                "AND",
+                "OR",
+                "NOT",
+                "exists"
+            ],
+            "description": "Operator defining the evaluation logic"
+        },
+        "operands": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/operand"
+            },
+            "minItems": 1,
+            "description": "Operands for the operator. Can be literals, field references, or nested expressions."
+        }
+    },
+    "additionalProperties": false,
+    "definitions": {
+        "operand": {
+            "description": "Operand for DSL evaluation",
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "Field reference (e.g., 'entity.properties.hp') or string literal"
+                },
+                {
+                    "type": "number",
+                    "description": "Numeric literal"
+                },
+                {
+                    "type": "boolean",
+                    "description": "Boolean literal"
+                },
+                {
+                    "$ref": "#",
+                    "description": "Nested expression (recursive structure)"
+                }
+            ]
+        }
+    }
+}

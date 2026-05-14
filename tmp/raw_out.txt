@@ -1,0 +1,23 @@
+Exception in thread Thread-1 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+Exception in thread Thread-2 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1499, in _readerthread
+    self.run()
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1499, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\codecs.py", line 322, in decode
+    buffer.append(fh.read())
+  File "C:\Users\eisak\AppData\Local\Programs\Python\Python310\lib\codecs.py", line 322, in decode
+    (result, consumed) = self._buffer_decode(data, self.errors, final)
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0x83 in position 176: invalid start byte
+    (result, consumed) = self._buffer_decode(data, self.errors, final)
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0x8c in position 129: invalid start byte
+None

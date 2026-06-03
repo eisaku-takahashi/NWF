@@ -1,11 +1,13 @@
 """
 Source: tests/integration_phase_3_4_validator.py
-Updated: 2026-04-29T16:29:00+09:00  # ★Phase 3.5 テスト順序依存排除対応
+Updated: 2026-05-19T22:34:00+09:00
 PIC: Engineer / ChatGPT
 Version: NWF v2.0.1
 Dependencies:
     - docs/spec/Execution_Spec/NWF_Validator_And_Context_Contract_v2.0.1.md
     - docs/spec/Spec_Governance/NWF_Python_Implementation_Rules_v2.0.1.md
+    - docs/project/NWF_Phase_3.5_Debug_Work_Plan_v20260516.md
+    - docs/project/NWF_Phase_3.5_Debug_Work_Plan_v20260519.md
     - src/integrity/validation_result.py
     - src/models/nwf_enums.py
     - src/integrity/validator_integration_adapter.py
@@ -28,14 +30,23 @@ Docstring:
     - Engine.evaluate_validation_results() を用いた外部注入テスト
     - Engineを「最終ゲートキーパー」として検証
 
-    ★Phase 3.4 最終強化（今回）:
+    ★Phase 3.4 最終強化:
     - Engine評価直前ログの明示追加
     - Validator → Adapter → Engine の完全トレース可視化
     - CRITICAL到達から停止までのログ一貫性確認
 
     ★Phase 3.5 修正（重要）:
-    - results[0] 依存の完全排除（順序未定義仕様への準拠）
-    - 順序に依存しない検証（any / 集合ベース）へ変更
+    - ValidationResult strict schema 対応
+    - rule_id / scope / target_id 必須化対応
+    - results[0] 依存の完全排除
+    - 順序非依存テストへの統一
+    - ValidationResult strict schema rollback 禁止対応
+
+    ★Phase 3.5 Debug Work Plan v20260519 対応:
+    - violated_rules strict schema 完全同期
+    - violated_rules includes rule_id 準拠
+    - Severity consistency synchronization
+    - INFO混在禁止方針同期
 
     テストは完全に決定論的であり、副作用を持たない。
 """
@@ -45,20 +56,38 @@ Docstring:
 # =========================================================
 import unittest
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import timedelta
+from datetime import timezone
 
-from src.integrity.validation_result import ValidationResult
-from src.models.nwf_enums import NWFSeverity, NWFActionType
-from src.integrity.validator_integration_adapter import ValidatorIntegrationAdapter
-from src.workflow.workflow_context import WorkflowContext
 from src.engine.story_engine import StoryEngine
-
+from src.integrity.validation_result import ValidationResult
+from src.integrity.validator_integration_adapter import (
+    ValidatorIntegrationAdapter,
+)
+from src.models.nwf_enums import NWFSeverity
+from src.workflow.workflow_context import WorkflowContext
 
 # =========================================================
 # 定数 / 設定
 # =========================================================
+
+# ---------------------------------------------------------
+# NWF 時間管理規則:
+# JST 固定
+# ---------------------------------------------------------
 JST = timezone(timedelta(hours=9))
 
+# =========================================================
+# Public Interface
+# =========================================================
+__all__ = [
+    "MockValidator",
+    "LegacyDictValidator",
+    "DummyEntity",
+    "create_context",
+    "create_validation_result",
+    "TestPhase34ValidatorIntegration",
+]
 
 # =========================================================
 # テスト用モック
@@ -69,25 +98,85 @@ class MockValidator:
     """
 
     def __init__(self, result: ValidationResult):
+        """
+        モック初期化。
+
+        Args:
+            result:
+                返却する ValidationResult
+        """
+
         self._result = result
 
-    def validate(self, context: WorkflowContext, target):
+    def validate(
+        self,
+        context: WorkflowContext,
+        target
+    ):
+        """
+        ValidationResult を返却する。
+
+        Args:
+            context:
+                WorkflowContext
+
+            target:
+                対象 Entity
+
+        Returns:
+            ValidationResult
+        """
+
         return self._result
 
 
 class LegacyDictValidator:
     """
     旧I/F（dict）を返すバリデーター
-    Adapter の変換機能検証用
+
+    Adapter の Legacy 互換吸収機能検証用。
     """
 
-    def validate(self, context: WorkflowContext, target):
+    def validate(
+        self,
+        context: WorkflowContext,
+        target
+    ):
+        """
+        Legacy dict を返却する。
+
+        Args:
+            context:
+                WorkflowContext
+
+            target:
+                対象 Entity
+
+        Returns:
+            dict:
+                Legacy Validation Result
+        """
+
         return {
             "is_valid": False,
             "severity": "ERROR",
             "error_code": "ERR_LM_001",
             "message": "legacy dict error",
-            "violated_rules": ["ENTITY_STATE_CONFLICT"]
+
+            # =================================================
+            # strict schema:
+            # invalid の場合 violated_rules 必須
+            # =================================================
+            "violated_rules": [
+                "LEGACY_RULE"
+            ],
+
+            # =================================================
+            # strict schema 必須属性
+            # =================================================
+            "rule_id": "LEGACY_RULE",
+            "scope": "LEGACY",
+            "target_id": "LEGACY_TARGET",
         }
 
 
@@ -97,9 +186,19 @@ class DummyEntity:
     """
 
     def __init__(self, entity_id: str):
+        """
+        DummyEntity 初期化。
+
+        Args:
+            entity_id:
+                Entity ID
+        """
+
         self.id = entity_id
         self.is_alive = True
-        self.current_location = "test_location"
+        self.current_location = (
+            "test_location"
+        )
 
 
 # =========================================================
@@ -107,169 +206,436 @@ class DummyEntity:
 # =========================================================
 def create_context() -> WorkflowContext:
     """
-    WorkflowContext をテスト用に生成
+    WorkflowContext をテスト用に生成する。
+
+    Returns:
+        WorkflowContext
     """
 
     context = WorkflowContext(
         metadata={
             "base_date": "2026-01-01",
             "time_unit": "stardate",
-            "coordinate_system": "3D"
+            "coordinate_system": "3D",
         },
         world_rules={
             "allow_ghost_activity": False,
             "allow_time_reversal": False,
-            "allow_multi_location": False
+            "allow_multi_location": False,
         },
         transaction=[],
-        current_stardate=1.000001
+        current_stardate=1.000001,
     )
 
-    # --- Phase 3.4 Blocker workaround ---
-    context.transaction_id = str(uuid.uuid4())
+    # -----------------------------------------------------
+    # transaction_id 必須仕様対応
+    # -----------------------------------------------------
+    context.transaction_id = str(
+        uuid.uuid4()
+    )
 
     return context
 
 
-def create_validation_result(severity: NWFSeverity) -> ValidationResult:
+def create_validation_result(
+    severity: NWFSeverity
+) -> ValidationResult:
     """
-    ValidationResult を生成
+    ValidationResult を生成する。
+
+    Args:
+        severity:
+            NWFSeverity
+
+    Returns:
+        ValidationResult
     """
 
+    is_valid = severity in [
+        NWFSeverity.INFO,
+        NWFSeverity.WARNING,
+    ]
+
+    # =====================================================
+    # strict schema:
+    # invalid の場合 violated_rules 必須
+    # violated_rules は rule_id を含む必要がある
+    # =====================================================
+    violated_rules = []
+
+    if not is_valid:
+
+        violated_rules = [
+            "TEST_RULE"
+        ]
+
     return ValidationResult(
-        is_valid=(severity in [NWFSeverity.INFO, NWFSeverity.WARNING]),
+        rule_id="TEST_RULE",
+        scope="TEST_SCOPE",
+        target_id="TEST_TARGET",
+        is_valid=is_valid,
         severity=severity,
         error_code="TEST_CODE",
         message="test message",
-        violated_rules=[],
-        transaction_id=str(uuid.uuid4()),
+        violated_rules=violated_rules,
+        transaction_id=str(
+            uuid.uuid4()
+        ),
         stardate=1.000001,
-        metadata={}
+        metadata={},
     )
 
 
 # =========================================================
 # Test Class
 # =========================================================
-class TestPhase34ValidatorIntegration(unittest.TestCase):
+class TestPhase34ValidatorIntegration(
+    unittest.TestCase
+):
+    """
+    Phase 3.4 Validator Integration テスト
+    """
 
     def setUp(self):
         """
-        各テスト前の初期化
+        各テスト前の初期化。
         """
+
         self.context = create_context()
-        self.entity = DummyEntity("entity_001")
 
-    # -----------------------------------------------------
-    # 正常系
-    # -----------------------------------------------------
-    def test_normal_flow(self):
-        result = create_validation_result(NWFSeverity.INFO)
-        validator = MockValidator(result)
-        adapter = ValidatorIntegrationAdapter([validator])
-
-        raw = validator.validate(self.context, self.entity)
-        print("DEBUG [Validator]:", getattr(raw, "severity", raw))
-
-        adapted = adapter.validate(self.context, self.entity)
-        print("DEBUG [Adapter]:", [r.severity for r in adapted])
-
-        print("[TEST → Engine PRE]", [r.severity for r in adapted])
-
-        engine = StoryEngine(adapter)
-        timeline = engine.generate_story_graph([self.entity], self.context)
-
-        self.assertIsInstance(timeline, list)
-
-    # -----------------------------------------------------
-    def test_warning_flow(self):
-        result = create_validation_result(NWFSeverity.WARNING)
-        validator = MockValidator(result)
-        adapter = ValidatorIntegrationAdapter([validator])
-
-        adapted = adapter.validate(self.context, self.entity)
-        print("[TEST → Engine PRE]", [r.severity for r in adapted])
-
-        engine = StoryEngine(adapter)
-        timeline = engine.generate_story_graph([self.entity], self.context)
-
-        self.assertIsInstance(timeline, list)
-
-    # -----------------------------------------------------
-    def test_error_flow(self):
-        result = create_validation_result(NWFSeverity.ERROR)
-        validator = MockValidator(result)
-        adapter = ValidatorIntegrationAdapter([validator])
-
-        adapted = adapter.validate(self.context, self.entity)
-        print("[TEST → Engine PRE]", [r.severity for r in adapted])
-
-        engine = StoryEngine(adapter)
-        timeline = engine.generate_story_graph([self.entity], self.context)
-
-        self.assertIsInstance(timeline, list)
-        self.assertEqual(len(timeline), 0)
-
-    # -----------------------------------------------------
-    def test_critical_flow(self):
-        result = create_validation_result(NWFSeverity.CRITICAL)
-        validator = MockValidator(result)
-        adapter = ValidatorIntegrationAdapter([validator])
-
-        results = adapter.validate(self.context, self.entity)
-        print("[TEST → Engine]", [r.severity for r in results])
-
-        engine = StoryEngine(adapter)
-
-        with self.assertRaises(RuntimeError):
-            engine.evaluate_validation_results(results)
-
-    # -----------------------------------------------------
-    # Adapter変換系（★修正対象）
-    # -----------------------------------------------------
-    def test_adapter_legacy_conversion(self):
-        validator = LegacyDictValidator()
-        adapter = ValidatorIntegrationAdapter([validator])
-
-        results = adapter.validate(self.context, self.entity)
-
-        print("DEBUG [Adapter Legacy]:", [r.severity for r in results])
-
-        self.assertTrue(all(isinstance(r, ValidationResult) for r in results))
-
-        # -------------------------------
-        # 修正前（順序依存あり・NG）
-        # -------------------------------
-        # self.assertEqual(results[0].severity, NWFSeverity.ERROR)
-
-        # -------------------------------
-        # 修正後（順序非依存・OK）
-        # -------------------------------
-        self.assertTrue(
-            any(r.severity == NWFSeverity.ERROR for r in results)
+        self.entity = DummyEntity(
+            "entity_001"
         )
 
-    # -----------------------------------------------------
+    # =====================================================
+    # 正常系
+    # =====================================================
+    def test_normal_flow(self):
+        """
+        INFO 正常系テスト。
+        """
+
+        result = create_validation_result(
+            NWFSeverity.INFO
+        )
+
+        validator = MockValidator(result)
+
+        adapter = ValidatorIntegrationAdapter(
+            [validator]
+        )
+
+        raw = validator.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "DEBUG [Validator]:",
+            getattr(
+                raw,
+                "severity",
+                raw
+            ),
+        )
+
+        adapted = adapter.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "DEBUG [Adapter]:",
+            [
+                r.severity
+                for r in adapted
+            ],
+        )
+
+        print(
+            "[TEST → Engine PRE]",
+            [
+                r.severity
+                for r in adapted
+            ],
+        )
+
+        engine = StoryEngine(adapter)
+
+        timeline = (
+            engine.generate_story_graph(
+                [self.entity],
+                self.context
+            )
+        )
+
+        self.assertIsInstance(
+            timeline,
+            list
+        )
+
+    # =====================================================
+    def test_warning_flow(self):
+        """
+        WARNING 系テスト。
+        """
+
+        result = create_validation_result(
+            NWFSeverity.WARNING
+        )
+
+        validator = MockValidator(result)
+
+        adapter = ValidatorIntegrationAdapter(
+            [validator]
+        )
+
+        adapted = adapter.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "[TEST → Engine PRE]",
+            [
+                r.severity
+                for r in adapted
+            ],
+        )
+
+        engine = StoryEngine(adapter)
+
+        timeline = (
+            engine.generate_story_graph(
+                [self.entity],
+                self.context
+            )
+        )
+
+        self.assertIsInstance(
+            timeline,
+            list
+        )
+
+    # =====================================================
+    def test_error_flow(self):
+        """
+        ERROR 系テスト。
+        """
+
+        result = create_validation_result(
+            NWFSeverity.ERROR
+        )
+
+        validator = MockValidator(result)
+
+        adapter = ValidatorIntegrationAdapter(
+            [validator]
+        )
+
+        adapted = adapter.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "[TEST → Engine PRE]",
+            [
+                r.severity
+                for r in adapted
+            ],
+        )
+
+        engine = StoryEngine(adapter)
+
+        timeline = (
+            engine.generate_story_graph(
+                [self.entity],
+                self.context
+            )
+        )
+
+        self.assertIsInstance(
+            timeline,
+            list
+        )
+
+        self.assertEqual(
+            len(timeline),
+            0
+        )
+
+    # =====================================================
+    def test_critical_flow(self):
+        """
+        CRITICAL 系テスト。
+        """
+
+        result = create_validation_result(
+            NWFSeverity.CRITICAL
+        )
+
+        validator = MockValidator(result)
+
+        adapter = ValidatorIntegrationAdapter(
+            [validator]
+        )
+
+        results = adapter.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "[TEST → Engine]",
+            [
+                r.severity
+                for r in results
+            ],
+        )
+
+        engine = StoryEngine(adapter)
+
+        with self.assertRaises(
+            RuntimeError
+        ):
+
+            engine.evaluate_validation_results(
+                results
+            )
+
+    # =====================================================
+    # Adapter変換系
+    # =====================================================
+    def test_adapter_legacy_conversion(
+        self
+    ):
+        """
+        Legacy dict → ValidationResult
+        変換テスト。
+        """
+
+        validator = LegacyDictValidator()
+
+        adapter = ValidatorIntegrationAdapter(
+            [validator]
+        )
+
+        results = adapter.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "DEBUG [Adapter Legacy]:",
+            [
+                r.severity
+                for r in results
+            ],
+        )
+
+        self.assertTrue(
+            all(
+                isinstance(
+                    r,
+                    ValidationResult
+                )
+                for r in results
+            )
+        )
+
+        # -------------------------------------------------
+        # 順序非依存検証
+        # -------------------------------------------------
+        self.assertTrue(
+            any(
+                r.severity
+                == NWFSeverity.ERROR
+                for r in results
+            )
+        )
+
+        # -------------------------------------------------
+        # strict schema:
+        # violated_rules includes rule_id
+        # -------------------------------------------------
+        self.assertTrue(
+            all(
+                r.rule_id
+                in r.violated_rules
+                for r in results
+                if not r.is_valid
+            )
+        )
+
+    # =====================================================
     def test_multiple_validators(self):
-        v1 = MockValidator(create_validation_result(NWFSeverity.INFO))
-        v2 = MockValidator(create_validation_result(NWFSeverity.WARNING))
-        v3 = MockValidator(create_validation_result(NWFSeverity.ERROR))
+        """
+        複数 Validator 統合テスト。
+        """
 
-        adapter = ValidatorIntegrationAdapter([v1, v2, v3])
-        results = adapter.validate(self.context, self.entity)
+        v1 = MockValidator(
+            create_validation_result(
+                NWFSeverity.INFO
+            )
+        )
 
-        print("[TEST → Engine PRE MULTI]", [r.severity for r in results])
+        v2 = MockValidator(
+            create_validation_result(
+                NWFSeverity.WARNING
+            )
+        )
 
-        self.assertEqual(len(results), 3)
-        self.assertTrue(any(r.severity == NWFSeverity.ERROR for r in results))
+        v3 = MockValidator(
+            create_validation_result(
+                NWFSeverity.ERROR
+            )
+        )
 
-    # -----------------------------------------------------
+        adapter = ValidatorIntegrationAdapter(
+            [v1, v2, v3]
+        )
+
+        results = adapter.validate(
+            self.context,
+            self.entity
+        )
+
+        print(
+            "[TEST → Engine PRE MULTI]",
+            [
+                r.severity
+                for r in results
+            ],
+        )
+
+        self.assertEqual(
+            len(results),
+            3
+        )
+
+        self.assertTrue(
+            any(
+                r.severity
+                == NWFSeverity.ERROR
+                for r in results
+            )
+        )
+
+    # =====================================================
     def test_stardate_precision(self):
+        """
+        Stardate 精度検証。
+        """
+
         epsilon = 0.000001
+
         a = 1.000001
         b = 1.0000015
 
-        self.assertTrue(abs(a - b) < epsilon)
+        self.assertTrue(
+            abs(a - b) < epsilon
+        )
 
 
 # =========================================================
